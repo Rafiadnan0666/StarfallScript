@@ -18,62 +18,91 @@ public class CosmicVoidTree : MonoBehaviour
         public string name;
         public float pulseOffset;
         public float swayOffset;
+        public int materialIndex;
     }
 
-    [Header("Tree Structure")]
-    [Range(3, 8)] public int branchLevels = 5;
-    [Range(1, 6)] public int minBranchesPerNode = 2;
-    [Range(2, 8)] public int maxBranchesPerNode = 4;
-    [Range(10f, 50f)] public float startLength = 30f;
-    [Range(0.4f, 0.9f)] public float lengthDecay = 0.65f;
-    [Range(1f, 5f)] public float startRadius = 3f;
-    [Range(0.5f, 0.9f)] public float radiusDecay = 0.75f;
-    [Range(0.1f, 1f)] public float curvatureFactor = 0.4f;
-    [Range(0f, 0.5f)] public float gravityInfluence = 0.15f;
-    [Range(0.5f, 2f)] public float spreadFactor = 1.2f;
-    [Range(0f, 1f)] public float tanglingFactor = 0.3f;
+    [System.Serializable]
+    public class TreeSettings
+    {
+        [Header("Tree Structure")]
+        [Range(3, 8)] public int branchLevels = 5;
+        [Range(1, 6)] public int minBranchesPerNode = 2;
+        [Range(2, 8)] public int maxBranchesPerNode = 4;
+        [Range(10f, 50f)] public float startLength = 30f;
+        [Range(0.4f, 0.9f)] public float lengthDecay = 0.65f;
+        [Range(1f, 5f)] public float startRadius = 3f;
+        [Range(0.5f, 0.9f)] public float radiusDecay = 0.75f;
+        [Range(0.1f, 1f)] public float curvatureFactor = 0.4f;
+        [Range(0f, 0.5f)] public float gravityInfluence = 0.15f;
+        [Range(0.5f, 2f)] public float spreadFactor = 1.2f;
+        [Range(0f, 1f)] public float tanglingFactor = 0.3f;
+    }
 
-    [Header("Vine Properties")]
-    public bool generateVines = true;
-    [Range(5, 40)] public int vineCount = 20;
-    [Range(5f, 30f)] public float vineLengthMin = 10f;
-    [Range(15f, 40f)] public float vineLengthMax = 25f;
-    [Range(0.2f, 1f)] public float vineThickness = 0.4f;
-    [Range(0.1f, 1f)] public float vineDroop = 0.5f;
-    [Range(0.1f, 1f)] public float vineCurvature = 0.7f;
+    [System.Serializable]
+    public class VineSettings
+    {
+        public bool generateVines = true;
+        [Range(5, 40)] public int vineCount = 20;
+        [Range(5f, 30f)] public float vineLengthMin = 10f;
+        [Range(15f, 40f)] public float vineLengthMax = 25f;
+        [Range(0.2f, 1f)] public float vineThickness = 0.4f;
+        [Range(0.1f, 1f)] public float vineDroop = 0.5f;
+        [Range(0.1f, 1f)] public float vineCurvature = 0.7f;
+    }
 
-    [Header("Root Properties")]
-    [Range(5, 30)] public int rootCount = 15;
-    [Range(0.3f, 2.5f)] public float rootBaseThickness = 1f;
-    [Range(0f, 0.5f)] public float rootThicknessVariation = 0.2f;
-    [Range(0.5f, 8f)] public float rootCurlIntensity = 4f;
-    [Range(0f, 1f)] public float rootGravityInfluence = 0.4f;
-    [Range(0.5f, 3f)] public float rootSpreadRadius = 1.8f;
-    [Range(0f, 1f)] public float rootTanglingFactor = 0.6f;
+    [System.Serializable]
+    public class RootSettings
+    {
+        [Range(5, 30)] public int rootCount = 15;
+        [Range(0.3f, 2.5f)] public float rootBaseThickness = 1f;
+        [Range(0f, 0.5f)] public float rootThicknessVariation = 0.2f;
+        [Range(0.5f, 8f)] public float rootCurlIntensity = 4f;
+        [Range(0f, 1f)] public float rootGravityInfluence = 0.4f;
+        [Range(0.5f, 3f)] public float rootSpreadRadius = 1.8f;
+        [Range(0f, 1f)] public float rootTanglingFactor = 0.6f;
+    }
 
-    [Header("Appearance")]
-    public Gradient trunkColorGradient;
-    public Gradient vineColorGradient;
-    public Gradient rootColorGradient;
-    [Range(1f, 10f)] public float emissionIntensity = 3f;
-    [Range(0.1f, 2f)] public float pulseSpeed = 0.5f;
-    [Range(0f, 0.5f)] public float pulseAmount = 0.25f;
-    [Range(0.1f, 2f)] public float swaySpeed = 0.4f;
-    [Range(0f, 1f)] public float swayIntensity = 0.6f;
-    [Range(4, 10)] public int radialResolution = 6;
+    [System.Serializable]
+    public class AppearanceSettings
+    {
+        public Gradient trunkColorGradient;
+        public Gradient vineColorGradient;
+        public Gradient rootColorGradient;
+        [Range(1f, 10f)] public float emissionIntensity = 3f;
+        [Range(0.1f, 2f)] public float pulseSpeed = 0.5f;
+        [Range(0f, 0.5f)] public float pulseAmount = 0.25f;
+        [Range(0.1f, 2f)] public float swaySpeed = 0.4f;
+        [Range(0f, 1f)] public float swayIntensity = 0.6f;
+        [Range(4, 10)] public int radialResolution = 6;
+    }
 
-    [Header("Lighting")]
-    public bool addLights = true;
-    [Range(1f, 10f)] public float lightIntensity = 3.5f;
-    [Range(5f, 20f)] public float lightRange = 12f;
-    public Color lightColor = Color.cyan;
-    [Range(1, 10)] public int lightsPerBranchLevel = 4;
+    [System.Serializable]
+    public class LightingSettings
+    {
+        public bool addLights = true;
+        [Range(1f, 10f)] public float lightIntensity = 3.5f;
+        [Range(5f, 20f)] public float lightRange = 12f;
+        public Color lightColor = Color.cyan;
+        [Range(1, 10)] public int lightsPerBranchLevel = 4;
+    }
 
-    [Header("Quantum Effects")]
-    [Range(0f, 1f)] public float distortionAmount = 0.3f;
-    [Range(0.1f, 3f)] public float morphFrequency = 1f;
-    public bool enablePhysics = false;
+    [System.Serializable]
+    public class QuantumSettings
+    {
+        [Range(0f, 1f)] public float distortionAmount = 0.3f;
+        [Range(0.1f, 3f)] public float morphFrequency = 1f;
+        public bool enablePhysics = false;
+    }
 
+    // Public settings
+    public TreeSettings treeSettings = new TreeSettings();
+    public VineSettings vineSettings = new VineSettings();
+    public RootSettings rootSettings = new RootSettings();
+    public AppearanceSettings appearanceSettings = new AppearanceSettings();
+    public LightingSettings lightingSettings = new LightingSettings();
+    public QuantumSettings quantumSettings = new QuantumSettings();
+
+    // Private fields
     private List<BranchNode> nodes = new List<BranchNode>();
     private List<BranchNode> vineNodes = new List<BranchNode>();
     private List<BranchNode> rootNodes = new List<BranchNode>();
@@ -81,9 +110,7 @@ public class CosmicVoidTree : MonoBehaviour
 
     private Mesh mesh;
     private Vector3[] originalVertices;
-    private Material trunkMaterial;
-    private Material vineMaterial;
-    private Material rootMaterial;
+    private Material[] materials;
 
     private float animationTime;
     private Vector3 originalPosition;
@@ -95,44 +122,34 @@ public class CosmicVoidTree : MonoBehaviour
     private string[] rootSuffixes = { "Tendril", "Root", "Vine", "Filament", "Fiber", "Strand", "Cord", "Thread", "Vein" };
     private Dictionary<int, string> rootNames = new Dictionary<int, string>();
 
+    // Object pooling for mesh generation
+    private List<CombineInstance> combineInstances = new List<CombineInstance>();
+    private List<Vector3> vertexBuffer = new List<Vector3>();
+    private List<Vector2> uvBuffer = new List<Vector2>();
+    private List<int> triangleBuffer = new List<int>();
+    private List<Color> colorBuffer = new List<Color>();
+
     void Start()
     {
-        // Initialize gradients if not set
-        if (trunkColorGradient.alphaKeys.Length == 0)
-        {
-            trunkColorGradient = CreateQuantumGradient();
-        }
-        if (vineColorGradient.alphaKeys.Length == 0)
-        {
-            vineColorGradient = CreateVineGradient();
-        }
-        if (rootColorGradient.alphaKeys.Length == 0)
-        {
-            rootColorGradient = CreateRootGradient();
-        }
-
-        randomOffset = Random.Range(0f, 1000f);
-        originalPosition = transform.position;
-        originalRotation = transform.rotation;
+        InitializeGradients();
+        InitializeTree();
 
         // Generate the tree structure
-        GenerateSkeleton(Vector3.zero, Vector3.up, startLength, startRadius, 0, null);
+        GenerateSkeleton(Vector3.zero, Vector3.up, treeSettings.startLength, treeSettings.startRadius, 0, null);
 
         // Generate roots
         GenerateRootSystem();
 
         // Generate vines if enabled
-        if (generateVines)
+        if (vineSettings.generateVines)
         {
             GenerateVines();
         }
 
         // Create the mesh
         mesh = GenerateMesh();
-        var mf = GetComponent<MeshFilter>();
-        var mc = GetComponent<MeshCollider>();
-        mf.sharedMesh = mesh;
-        mc.sharedMesh = mesh;
+        GetComponent<MeshFilter>().sharedMesh = mesh;
+        GetComponent<MeshCollider>().sharedMesh = mesh;
 
         // Store original vertices for animation
         originalVertices = mesh.vertices;
@@ -141,13 +158,13 @@ public class CosmicVoidTree : MonoBehaviour
         ApplyMaterials();
 
         // Add lights if enabled
-        if (addLights)
+        if (lightingSettings.addLights)
         {
             AddLights();
         }
 
         // Add physics if enabled
-        if (enablePhysics)
+        if (quantumSettings.enablePhysics)
         {
             AddPhysicsComponents();
         }
@@ -159,25 +176,59 @@ public class CosmicVoidTree : MonoBehaviour
     void Update()
     {
         animationTime += Time.deltaTime;
-
-        // Pulse emission for dynamic effect
         PulseEmission();
-
-        // Animate the tree
         AnimateTree();
+    }
+
+    private void InitializeGradients()
+    {
+        if (appearanceSettings.trunkColorGradient.alphaKeys.Length == 0)
+            appearanceSettings.trunkColorGradient = CreateQuantumGradient();
+
+        if (appearanceSettings.vineColorGradient.alphaKeys.Length == 0)
+            appearanceSettings.vineColorGradient = CreateVineGradient();
+
+        if (appearanceSettings.rootColorGradient.alphaKeys.Length == 0)
+            appearanceSettings.rootColorGradient = CreateRootGradient();
+    }
+
+    private void InitializeTree()
+    {
+        randomOffset = Random.Range(0f, 1000f);
+        originalPosition = transform.position;
+        originalRotation = transform.rotation;
+
+        // Pre-allocate lists to reduce garbage collection
+        nodes = new List<BranchNode>(CalculateMaxNodes());
+        vineNodes = new List<BranchNode>(vineSettings.vineCount);
+        rootNodes = new List<BranchNode>(rootSettings.rootCount);
+    }
+
+    private int CalculateMaxNodes()
+    {
+        int maxNodes = 0;
+        int branchesPerLevel = treeSettings.maxBranchesPerNode;
+
+        for (int i = 0; i < treeSettings.branchLevels; i++)
+        {
+            maxNodes += (int)Mathf.Pow(branchesPerLevel, i);
+        }
+
+        return maxNodes;
     }
 
     void GenerateSkeleton(Vector3 pos, Vector3 dir, float length, float radius, int depth, BranchNode parent)
     {
-        if (depth >= branchLevels) return;
+        if (depth >= treeSettings.branchLevels) return;
 
         // Calculate end position with some curvature and spread
-        Vector3 curvedDir = (dir + Random.insideUnitSphere * curvatureFactor).normalized;
+        Vector3 curvedDir = (dir + Random.insideUnitSphere * treeSettings.curvatureFactor).normalized;
 
         // Apply spread factor to make branches spread out more
         if (depth > 0)
         {
-            curvedDir = Vector3.Slerp(curvedDir, Vector3.Normalize(curvedDir + Vector3.up * 0.2f), spreadFactor * depth / branchLevels);
+            curvedDir = Vector3.Slerp(curvedDir, Vector3.Normalize(curvedDir + Vector3.up * 0.2f),
+                                     treeSettings.spreadFactor * depth / treeSettings.branchLevels);
         }
 
         Vector3 end = pos + curvedDir * length;
@@ -185,10 +236,10 @@ public class CosmicVoidTree : MonoBehaviour
         // Apply gravity influence to lower branches
         if (depth > 1)
         {
-            end += Vector3.down * gravityInfluence * depth;
+            end += Vector3.down * treeSettings.gravityInfluence * depth;
         }
 
-        float endRadius = radius * radiusDecay;
+        float endRadius = radius * treeSettings.radiusDecay;
 
         BranchNode newNode = new BranchNode
         {
@@ -199,21 +250,22 @@ public class CosmicVoidTree : MonoBehaviour
             depth = depth,
             isVine = false,
             pulseOffset = Random.Range(0f, Mathf.PI * 2),
-            swayOffset = Random.Range(0f, Mathf.PI * 2)
+            swayOffset = Random.Range(0f, Mathf.PI * 2),
+            materialIndex = 0 // Trunk material
         };
 
         nodes.Add(newNode);
 
         // Apply tangling effect - branches attract each other
-        if (tanglingFactor > 0 && depth > 0)
+        if (treeSettings.tanglingFactor > 0 && depth > 0)
         {
             Vector3 tanglingForce = CalculateTanglingForce(newNode, nodes);
-            end = Vector3.Lerp(end, end + tanglingForce, tanglingFactor * 0.1f);
+            end = Vector3.Lerp(end, end + tanglingForce, treeSettings.tanglingFactor * 0.1f);
             newNode.end = end;
         }
 
         // Determine number of branches for this node
-        int branches = Random.Range(minBranchesPerNode, maxBranchesPerNode + 1);
+        int branches = Random.Range(treeSettings.minBranchesPerNode, treeSettings.maxBranchesPerNode + 1);
 
         for (int i = 0; i < branches; i++)
         {
@@ -233,8 +285,8 @@ public class CosmicVoidTree : MonoBehaviour
             }
 
             // Reduce length and radius for child branches
-            float childLength = length * lengthDecay * Random.Range(0.8f, 1.1f);
-            float childRadius = endRadius * radiusDecay * Random.Range(0.7f, 1f);
+            float childLength = length * treeSettings.lengthDecay * Random.Range(0.8f, 1.1f);
+            float childRadius = endRadius * treeSettings.radiusDecay * Random.Range(0.7f, 1f);
 
             GenerateSkeleton(end, branchDir, childLength, childRadius, depth + 1, newNode);
         }
@@ -265,10 +317,10 @@ public class CosmicVoidTree : MonoBehaviour
     void GenerateRootSystem()
     {
         // Generate primary roots
-        for (int i = 0; i < rootCount; i++)
+        for (int i = 0; i < rootSettings.rootCount; i++)
         {
-            float angle = i * Mathf.PI * 2 / rootCount;
-            float distance = Random.Range(rootSpreadRadius * 0.7f, rootSpreadRadius * 1.3f);
+            float angle = i * Mathf.PI * 2 / rootSettings.rootCount;
+            float distance = Random.Range(rootSettings.rootSpreadRadius * 0.7f, rootSettings.rootSpreadRadius * 1.3f);
             Vector3 origin = transform.position + new Vector3(
                 Mathf.Cos(angle) * distance,
                 -1f,
@@ -279,26 +331,27 @@ public class CosmicVoidTree : MonoBehaviour
             {
                 start = origin,
                 end = origin + Vector3.down * Random.Range(3f, 8f),
-                startRadius = rootBaseThickness,
-                endRadius = rootBaseThickness * 0.4f,
+                startRadius = rootSettings.rootBaseThickness,
+                endRadius = rootSettings.rootBaseThickness * 0.4f,
                 depth = -2,
                 isVine = false,
                 pulseOffset = Random.Range(0f, Mathf.PI * 2),
                 swayOffset = Random.Range(0f, Mathf.PI * 2),
-                name = GenerateRootName(i)
+                name = GenerateRootName(i),
+                materialIndex = 2 // Root material
             };
 
             // Apply root-specific curvature
             Vector3 rootDir = (root.end - root.start).normalized;
             float noiseX = Mathf.PerlinNoise(root.start.x * 0.1f, i * 0.1f) * 2f - 1f;
             float noiseZ = Mathf.PerlinNoise(root.start.z * 0.1f, i * 0.1f) * 2f - 1f;
-            float noiseY = (Mathf.PerlinNoise(root.start.y * 0.1f, i * 0.1f) * 2f - 1f) * (1 - rootGravityInfluence);
+            float noiseY = (Mathf.PerlinNoise(root.start.y * 0.1f, i * 0.1f) * 2f - 1f) * (1 - rootSettings.rootGravityInfluence);
 
-            Vector3 curl = new Vector3(noiseX, noiseY, noiseZ).normalized * rootCurlIntensity * 0.01f;
+            Vector3 curl = new Vector3(noiseX, noiseY, noiseZ).normalized * rootSettings.rootCurlIntensity * 0.01f;
             rootDir = (rootDir + curl).normalized;
 
             // Apply gravity influence
-            rootDir = Vector3.Lerp(rootDir, Vector3.down, rootGravityInfluence).normalized;
+            rootDir = Vector3.Lerp(rootDir, Vector3.down, rootSettings.rootGravityInfluence).normalized;
             root.end = root.start + rootDir * Random.Range(5f, 15f);
 
             rootNodes.Add(root);
@@ -316,83 +369,97 @@ public class CosmicVoidTree : MonoBehaviour
     void GenerateVines()
     {
         // Select random branches to attach vines to (prefer middle-depth branches)
-        var possibleAttachPoints = nodes.Where(n => n.depth > 1 && n.depth < branchLevels - 1).ToList();
+        var possibleAttachPoints = nodes.Where(n => n.depth > 1 && n.depth < treeSettings.branchLevels - 1).ToList();
 
         if (possibleAttachPoints.Count == 0) return;
 
-        for (int i = 0; i < vineCount; i++)
+        for (int i = 0; i < vineSettings.vineCount; i++)
         {
             // Select a random attachment point
             var attachPoint = possibleAttachPoints[Random.Range(0, possibleAttachPoints.Count)];
             Vector3 attachPos = Vector3.Lerp(attachPoint.start, attachPoint.end, Random.Range(0.3f, 0.8f));
 
             // Determine vine length
-            float vineLength = Random.Range(vineLengthMin, vineLengthMax);
+            float vineLength = Random.Range(vineSettings.vineLengthMin, vineSettings.vineLengthMax);
 
             // Create vine with droop and curvature effects
-            Vector3 vineDir = Vector3.down + Random.insideUnitSphere * vineCurvature;
+            Vector3 vineDir = Vector3.down + Random.insideUnitSphere * vineSettings.vineCurvature;
             Vector3 vineEnd = attachPos + vineDir.normalized * vineLength;
 
             // Add some randomness to the end position
-            vineEnd += Random.insideUnitSphere * vineLength * vineDroop;
+            vineEnd += Random.insideUnitSphere * vineLength * vineSettings.vineDroop;
 
             vineNodes.Add(new BranchNode
             {
                 start = attachPos,
                 end = vineEnd,
-                startRadius = vineThickness,
-                endRadius = vineThickness * 0.4f,
+                startRadius = vineSettings.vineThickness,
+                endRadius = vineSettings.vineThickness * 0.4f,
                 depth = -1,
                 isVine = true,
                 pulseOffset = Random.Range(0f, Mathf.PI * 2),
-                swayOffset = Random.Range(0f, Mathf.PI * 2)
+                swayOffset = Random.Range(0f, Mathf.PI * 2),
+                materialIndex = 1 // Vine material
             });
         }
     }
 
     Mesh GenerateMesh()
     {
-        List<CombineInstance> combines = new List<CombineInstance>();
+        combineInstances.Clear();
+
+        // Pre-allocate buffers
+        int estimatedVerts = (nodes.Count + vineNodes.Count + rootNodes.Count) * (appearanceSettings.radialResolution + 1) * 2;
+        vertexBuffer.Capacity = estimatedVerts;
+        uvBuffer.Capacity = estimatedVerts;
+        triangleBuffer.Capacity = estimatedVerts * 3;
+        colorBuffer.Capacity = estimatedVerts;
 
         // Generate trunk and branches
         foreach (var branch in nodes)
         {
             int segments = Mathf.Max(8, Mathf.CeilToInt(branch.startRadius * 2f));
-            Mesh tube = GenerateTube(branch.start, branch.end, branch.startRadius, branch.endRadius, segments, false);
-            combines.Add(new CombineInstance { mesh = tube, transform = Matrix4x4.identity });
+            GenerateTubeMesh(branch.start, branch.end, branch.startRadius, branch.endRadius, segments, branch.materialIndex);
         }
 
         // Generate vines
         foreach (var vine in vineNodes)
         {
             int segments = Mathf.Max(6, Mathf.CeilToInt(vine.startRadius * 3f));
-            Mesh tube = GenerateTube(vine.start, vine.end, vine.startRadius, vine.endRadius, segments, true);
-            combines.Add(new CombineInstance { mesh = tube, transform = Matrix4x4.identity });
+            GenerateTubeMesh(vine.start, vine.end, vine.startRadius, vine.endRadius, segments, vine.materialIndex);
         }
 
         // Generate roots
         foreach (var root in rootNodes)
         {
             int segments = Mathf.Max(6, Mathf.CeilToInt(root.startRadius * 3f));
-            Mesh tube = GenerateTube(root.start, root.end, root.startRadius, root.endRadius, segments, false);
-            combines.Add(new CombineInstance { mesh = tube, transform = Matrix4x4.identity });
+            GenerateTubeMesh(root.start, root.end, root.startRadius, root.endRadius, segments, root.materialIndex);
         }
 
+        // Create the final mesh
         Mesh combined = new Mesh();
         combined.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-        combined.CombineMeshes(combines.ToArray(), true, false, false);
+
+        combined.SetVertices(vertexBuffer);
+        combined.SetUVs(0, uvBuffer);
+        combined.SetTriangles(triangleBuffer, 0);
+        combined.SetColors(colorBuffer);
+
         combined.RecalculateNormals();
         combined.RecalculateTangents();
         combined.RecalculateBounds();
 
+        // Clear buffers for next use
+        vertexBuffer.Clear();
+        uvBuffer.Clear();
+        triangleBuffer.Clear();
+        colorBuffer.Clear();
+
         return combined;
     }
 
-    Mesh GenerateTube(Vector3 start, Vector3 end, float startRadius, float endRadius, int segments, bool isVine)
+    void GenerateTubeMesh(Vector3 start, Vector3 end, float startRadius, float endRadius, int segments, int materialIndex)
     {
-        Mesh mesh = new Mesh();
-        mesh.name = isVine ? "QuantumVineSegment" : "QuantumBranchSegment";
-
         Vector3 dir = (end - start).normalized;
         float length = Vector3.Distance(start, end);
 
@@ -401,10 +468,7 @@ public class CosmicVoidTree : MonoBehaviour
         if (side.magnitude < 0.1f) side = Vector3.Cross(dir, Vector3.right).normalized;
         Vector3 up = Vector3.Cross(side, dir).normalized;
 
-        List<Vector3> verts = new List<Vector3>();
-        List<Vector2> uvs = new List<Vector2>();
-        List<int> tris = new List<int>();
-        List<Color> colors = new List<Color>();
+        int vertexStartIndex = vertexBuffer.Count;
 
         // Create rings of vertices
         for (int i = 0; i <= segments; i++)
@@ -413,91 +477,83 @@ public class CosmicVoidTree : MonoBehaviour
             Vector3 circle = Mathf.Cos(angle) * side + Mathf.Sin(angle) * up;
 
             // Start ring
-            verts.Add(start + circle * startRadius);
-            uvs.Add(new Vector2(i / (float)segments, 0));
+            vertexBuffer.Add(start + circle * startRadius);
+            uvBuffer.Add(new Vector2(i / (float)segments, 0));
 
-            // Color based on position
+            // Color based on position and material type
             float colorValue = Mathf.PerlinNoise(start.x * 0.1f, start.z * 0.1f);
-            colors.Add(new Color(colorValue, colorValue, colorValue, 1f));
+            Color vertexColor = new Color(colorValue, colorValue, colorValue, 1f);
+            colorBuffer.Add(vertexColor);
 
             // End ring
-            verts.Add(end + circle * endRadius);
-            uvs.Add(new Vector2(i / (float)segments, 1));
+            vertexBuffer.Add(end + circle * endRadius);
+            uvBuffer.Add(new Vector2(i / (float)segments, 1));
 
             colorValue = Mathf.PerlinNoise(end.x * 0.1f, end.z * 0.1f);
-            colors.Add(new Color(colorValue, colorValue, colorValue, 1f));
+            vertexColor = new Color(colorValue, colorValue, colorValue, 1f);
+            colorBuffer.Add(vertexColor);
         }
 
         // Create triangles
         for (int i = 0; i < segments; i++)
         {
-            int i0 = i * 2;
-            int i1 = i * 2 + 1;
-            int i2 = (i * 2 + 2) % ((segments + 1) * 2);
-            int i3 = (i * 2 + 3) % ((segments + 1) * 2);
+            int i0 = vertexStartIndex + i * 2;
+            int i1 = vertexStartIndex + i * 2 + 1;
+            int i2 = vertexStartIndex + ((i + 1) % segments) * 2;
+            int i3 = vertexStartIndex + ((i + 1) % segments) * 2 + 1;
 
-            tris.AddRange(new int[] { i0, i2, i1, i1, i2, i3 });
+            triangleBuffer.AddRange(new int[] { i0, i2, i1, i1, i2, i3 });
         }
-
-        mesh.SetVertices(verts);
-        mesh.SetUVs(0, uvs);
-        mesh.SetTriangles(tris, 0);
-        mesh.SetColors(colors);
-        mesh.RecalculateNormals();
-
-        return mesh;
     }
 
     void ApplyMaterials()
     {
         var mr = GetComponent<MeshRenderer>();
-        Material[] materials = new Material[3];
+        materials = new Material[3];
 
         // Trunk material
-        trunkMaterial = new Material(Shader.Find("Standard"));
-        trunkMaterial.EnableKeyword("_EMISSION");
-        Color trunkColor = trunkColorGradient.Evaluate(Random.value);
-        trunkMaterial.color = trunkColor;
-        trunkMaterial.SetColor("_EmissionColor", trunkColor * emissionIntensity);
-        trunkMaterial.name = "QuantumTrunkMaterial";
-        materials[0] = trunkMaterial;
+        materials[0] = CreateMaterial("QuantumTrunkMaterial", appearanceSettings.trunkColorGradient, appearanceSettings.emissionIntensity);
 
         // Vine material
-        vineMaterial = new Material(Shader.Find("Standard"));
-        vineMaterial.EnableKeyword("_EMISSION");
-        Color vineColor = vineColorGradient.Evaluate(Random.value);
-        vineMaterial.color = vineColor;
-        vineMaterial.SetColor("_EmissionColor", vineColor * emissionIntensity * 1.2f);
-        vineMaterial.name = "QuantumVineMaterial";
-        materials[1] = vineMaterial;
+        materials[1] = CreateMaterial("QuantumVineMaterial", appearanceSettings.vineColorGradient, appearanceSettings.emissionIntensity * 1.2f);
 
         // Root material
-        rootMaterial = new Material(Shader.Find("Standard"));
-        rootMaterial.EnableKeyword("_EMISSION");
-        Color rootColor = rootColorGradient.Evaluate(Random.value);
-        rootMaterial.color = rootColor;
-        rootMaterial.SetColor("_EmissionColor", rootColor * emissionIntensity * 0.8f);
-        rootMaterial.name = "QuantumRootMaterial";
-        materials[2] = rootMaterial;
+        materials[2] = CreateMaterial("QuantumRootMaterial", appearanceSettings.rootColorGradient, appearanceSettings.emissionIntensity * 0.8f);
 
         mr.sharedMaterials = materials;
     }
 
+    Material CreateMaterial(string name, Gradient gradient, float emissionIntensity)
+    {
+        Material mat = new Material(Shader.Find("Standard"));
+        mat.EnableKeyword("_EMISSION");
+        Color baseColor = gradient.Evaluate(Random.value);
+        mat.color = baseColor;
+        mat.SetColor("_EmissionColor", baseColor * emissionIntensity);
+        mat.name = name;
+        return mat;
+    }
+
     void PulseEmission()
     {
-        var mr = GetComponent<MeshRenderer>();
-        if (mr.sharedMaterials.Length < 3) return;
+        if (materials == null || materials.Length < 3) return;
 
-        float pulse = Mathf.Sin(Time.time * pulseSpeed) * pulseAmount + 1f;
+        float pulse = Mathf.Sin(Time.time * appearanceSettings.pulseSpeed) * appearanceSettings.pulseAmount + 1f;
 
         // Pulse trunk material
-        trunkMaterial.SetColor("_EmissionColor", trunkColorGradient.Evaluate(Mathf.PingPong(Time.time * 0.1f, 1f)) * emissionIntensity * pulse);
+        materials[0].SetColor("_EmissionColor",
+            appearanceSettings.trunkColorGradient.Evaluate(Mathf.PingPong(Time.time * 0.1f, 1f)) *
+            appearanceSettings.emissionIntensity * pulse);
 
         // Pulse vine material with slight offset
-        vineMaterial.SetColor("_EmissionColor", vineColorGradient.Evaluate(Mathf.PingPong(Time.time * 0.1f + 0.3f, 1f)) * emissionIntensity * 1.2f * (pulse + 0.1f));
+        materials[1].SetColor("_EmissionColor",
+            appearanceSettings.vineColorGradient.Evaluate(Mathf.PingPong(Time.time * 0.1f + 0.3f, 1f)) *
+            appearanceSettings.emissionIntensity * 1.2f * (pulse + 0.1f));
 
         // Pulse root material
-        rootMaterial.SetColor("_EmissionColor", rootColorGradient.Evaluate(Mathf.PingPong(Time.time * 0.1f + 0.6f, 1f)) * emissionIntensity * 0.8f * pulse);
+        materials[2].SetColor("_EmissionColor",
+            appearanceSettings.rootColorGradient.Evaluate(Mathf.PingPong(Time.time * 0.1f + 0.6f, 1f)) *
+            appearanceSettings.emissionIntensity * 0.8f * pulse);
     }
 
     void AnimateTree()
@@ -514,9 +570,10 @@ public class CosmicVoidTree : MonoBehaviour
             // Apply gentle swaying and pulsing to all vertices
             float timeOffset = randomOffset + i * 0.1f;
             float distortion =
-                Mathf.PerlinNoise(originalVertices[i].x * morphFrequency + animationTime, originalVertices[i].z * morphFrequency) *
-                Mathf.PerlinNoise(originalVertices[i].y * morphFrequency, animationTime * 0.5f) *
-                distortionAmount;
+                Mathf.PerlinNoise(originalVertices[i].x * quantumSettings.morphFrequency + animationTime,
+                                 originalVertices[i].z * quantumSettings.morphFrequency) *
+                Mathf.PerlinNoise(originalVertices[i].y * quantumSettings.morphFrequency, animationTime * 0.5f) *
+                quantumSettings.distortionAmount;
 
             vertices[i] = originalVertices[i] + normals[i] * Mathf.Sin(animationTime + timeOffset) * distortion;
         }
@@ -525,8 +582,8 @@ public class CosmicVoidTree : MonoBehaviour
         mesh.RecalculateNormals();
 
         // Apply gentle sway to the entire tree
-        float swayX = Mathf.Sin(animationTime * swaySpeed) * swayIntensity * 0.5f;
-        float swayZ = Mathf.Cos(animationTime * swaySpeed * 0.7f) * swayIntensity * 0.3f;
+        float swayX = Mathf.Sin(animationTime * appearanceSettings.swaySpeed) * appearanceSettings.swayIntensity * 0.5f;
+        float swayZ = Mathf.Cos(animationTime * appearanceSettings.swaySpeed * 0.7f) * appearanceSettings.swayIntensity * 0.3f;
         transform.rotation = originalRotation * Quaternion.Euler(swayX, 0, swayZ);
     }
 
@@ -538,36 +595,15 @@ public class CosmicVoidTree : MonoBehaviour
         lightsContainer.transform.localPosition = Vector3.zero;
 
         // Add lights to random branches
-        var lightBranches = nodes.Where(n => n.depth > 0 && n.depth < branchLevels - 1)
+        var lightBranches = nodes.Where(n => n.depth > 0 && n.depth < treeSettings.branchLevels - 1)
                                 .OrderBy(x => Random.value)
-                                .Take(lightsPerBranchLevel * branchLevels)
+                                .Take(lightingSettings.lightsPerBranchLevel * treeSettings.branchLevels)
                                 .ToList();
 
         foreach (var branch in lightBranches)
         {
             Vector3 lightPos = Vector3.Lerp(branch.start, branch.end, Random.Range(0.3f, 0.7f));
-
-            GameObject lightObj = new GameObject("QuantumLight");
-            lightObj.transform.SetParent(lightsContainer.transform);
-            lightObj.transform.position = lightPos;
-
-            Light light = lightObj.AddComponent<Light>();
-            light.type = LightType.Point;
-            light.range = lightRange;
-            light.intensity = lightIntensity;
-            light.color = lightColor;
-            light.shadows = LightShadows.Soft;
-
-            pointLights.Add(light);
-
-            // Add slight flicker for organic feel
-            if (Random.value > 0.7f)
-            {
-                FlickeringLight flicker = lightObj.AddComponent<FlickeringLight>();
-                flicker.minIntensity = lightIntensity * 0.8f;
-                flicker.maxIntensity = lightIntensity * 1.2f;
-                flicker.flickerSpeed = Random.Range(0.5f, 2f);
-            }
+            CreateLight(lightPos, lightingSettings.lightRange, lightingSettings.lightIntensity, lightingSettings.lightColor);
         }
 
         // Add lights to roots
@@ -576,19 +612,33 @@ public class CosmicVoidTree : MonoBehaviour
             if (i >= rootNodes.Count) break;
 
             Vector3 lightPos = Vector3.Lerp(rootNodes[i].start, rootNodes[i].end, 0.5f);
+            CreateLight(lightPos, lightingSettings.lightRange * 0.7f, lightingSettings.lightIntensity * 0.8f,
+                       Color.Lerp(lightingSettings.lightColor, Color.red, 0.3f));
+        }
+    }
 
-            GameObject lightObj = new GameObject("RootLight");
-            lightObj.transform.SetParent(lightsContainer.transform);
-            lightObj.transform.position = lightPos;
+    void CreateLight(Vector3 position, float range, float intensity, Color color)
+    {
+        GameObject lightObj = new GameObject("QuantumLight");
+        lightObj.transform.SetParent(transform);
+        lightObj.transform.position = position;
 
-            Light light = lightObj.AddComponent<Light>();
-            light.type = LightType.Point;
-            light.range = lightRange * 0.7f;
-            light.intensity = lightIntensity * 0.8f;
-            light.color = Color.Lerp(lightColor, Color.red, 0.3f);
-            light.shadows = LightShadows.Soft;
+        Light light = lightObj.AddComponent<Light>();
+        light.type = LightType.Point;
+        light.range = range;
+        light.intensity = intensity;
+        light.color = color;
+        light.shadows = LightShadows.Soft;
 
-            pointLights.Add(light);
+        pointLights.Add(light);
+
+        // Add slight flicker for organic feel
+        if (Random.value > 0.7f)
+        {
+            FlickeringLight flicker = lightObj.AddComponent<FlickeringLight>();
+            flicker.minIntensity = intensity * 0.8f;
+            flicker.maxIntensity = intensity * 1.2f;
+            flicker.flickerSpeed = Random.Range(0.5f, 2f);
         }
     }
 
