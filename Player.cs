@@ -230,7 +230,7 @@ public class Player : MonoBehaviour
         }
         else
         {
-                       grounded = false;
+           grounded = false;
         }
 
         if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Untagged") || collision.gameObject)
@@ -288,6 +288,13 @@ public class Player : MonoBehaviour
                 fallStartY = transform.position.y;
             }
         }
+
+     
+          
+       
+       
+            grounded = false;
+        
     }
 
     private Vector2 FindVelRelativeToLook()
@@ -329,7 +336,7 @@ public class Player : MonoBehaviour
         }
 
         // Handle jump input with buffer
-        if (Input.GetButtonDown("Jump"))
+        if (Input.GetButtonDown("Jump") && grounded)
         {
             lastJumpTime = Time.time;
             rb.AddForce(Vector3.up * jumpForce, ForceMode.VelocityChange);
