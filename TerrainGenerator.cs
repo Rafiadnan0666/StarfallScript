@@ -23,7 +23,6 @@ public class TerrainGenerator : MonoBehaviour
     public float maxSlope = 50f;
     public float minHeight = 0f;
 
-
     public BiomeType currentbiome;
 
     [Header("Mountain Settings")]
@@ -230,7 +229,7 @@ public class TerrainGenerator : MonoBehaviour
 
         float[,] heights = new float[terrainData.heightmapResolution, terrainData.heightmapResolution];
         yield return StartCoroutine(GenerateHeightmapCoroutine(heights, terrainData.heightmapResolution));
-        
+
         terrainData.SetHeights(0, 0, heights);
 
         terrain.terrainData = terrainData;
@@ -280,7 +279,6 @@ public class TerrainGenerator : MonoBehaviour
         AddCliffBorder(heights, resolution);
     }
 
-  
     void SpawnBiomeGrass(Terrain terrain, BiomeObjects biome)
     {
         if (biome.Grass == null)
@@ -357,6 +355,43 @@ public class TerrainGenerator : MonoBehaviour
         UpdateTerrainConnections();
     }
 
+    // Fixed method - replaced GenerateHeightmap with GenerateHeightmapCoroutine
+    IEnumerator GenerateNeighborTerrainsCoroutine()
+    {
+        BiomeObjects currentBiome = GetCurrentBiome();
+
+        for (int i = 0; i < neighborTerrainCount; i++)
+        {
+            GameObject neighborObj = new GameObject($"NeighborTerrain_{i}");
+
+            float xOffset = (i == 0) ? -width : width;
+            Vector3 position = transform.position + new Vector3(xOffset, 0, 0);
+            neighborObj.transform.position = position;
+
+            Terrain neighborTerrain = neighborObj.AddComponent<Terrain>();
+            TerrainCollider neighborCollider = neighborObj.AddComponent<TerrainCollider>();
+
+            TerrainData neighborData = new TerrainData();
+            neighborData.heightmapResolution = Mathf.NextPowerOfTwo(width) + 1;
+            neighborData.size = new Vector3(width, depth, height);
+
+            float[,] neighborHeights = new float[neighborData.heightmapResolution, neighborData.heightmapResolution];
+            yield return StartCoroutine(GenerateHeightmapCoroutine(neighborHeights, neighborData.heightmapResolution));
+
+            neighborData.SetHeights(0, 0, neighborHeights);
+
+            ApplyBiomeTextures(neighborData, currentBiome);
+            ApplyBiomeDetails(neighborData, currentBiome);
+
+            neighborTerrain.terrainData = neighborData;
+            neighborCollider.terrainData = neighborData;
+
+            neighborTerrains.Add(neighborTerrain);
+        }
+
+        UpdateTerrainConnections();
+    }
+
     void UpdateTerrainConnections()
     {
         if (neighborTerrains.Count == 2)
@@ -404,8 +439,6 @@ public class TerrainGenerator : MonoBehaviour
         waterController.waveHeight = situation.waveHeight;
         waterController.waveSpeed = situation.waveSpeed;
     }
-
-    
 
     float FractalNoise(float x, float y, int octaves)
     {
@@ -919,7 +952,14 @@ public class TerrainGenerator : MonoBehaviour
                 yield return null;
         }
 
-        //return eroded;
+        // Copy results back to original array
+        for (int x = 0; x < resolution; x++)
+        {
+            for (int y = 0; y < resolution; y++)
+            {
+                heights[x, y] = eroded[x, y];
+            }
+        }
     }
 
     IEnumerator ApplyThermalErosionCoroutine(float[,] heights, int resolution, int iterations)
@@ -972,7 +1012,14 @@ public class TerrainGenerator : MonoBehaviour
             yield return null;
         }
 
-        //return result;
+        // Copy results back to original array
+        for (int x = 0; x < resolution; x++)
+        {
+            for (int y = 0; y < resolution; y++)
+            {
+                heights[x, y] = result[x, y];
+            }
+        }
     }
 
     void SpawnObjectGroup(GameObject[] prefabs, float density)
@@ -1339,5 +1386,3 @@ public class WaterController : MonoBehaviour
         waterMaterial.SetFloat("_WaveHeight", waveHeight);
     }
 }
-
-
