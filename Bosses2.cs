@@ -80,19 +80,20 @@ public class Bosses2 : MonoBehaviour
         PlaySound(strikeSound, 1f);
         if (tip != null && bulletPrefab != null)
         {
-            GameObject bullet = Instantiate(bulletPrefab, tip.position, tip.rotation);
+            GameObject bullet = PoolManager.Instance.SpawnFromPool("bossBullet", tip.position, tip.rotation);
             Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
             if (bulletRb != null)
             {
                 bulletRb.linearVelocity = tip.forward * bulletSpeed;
             }
-            foreach (var segment in bodySegments)
+            
+            Collider bulletCollider = bullet.GetComponent<Collider>();
+            if (bulletCollider != null)
             {
-                Collider segmentCollider = segment.GetComponent<Collider>();
-                if (segmentCollider != null)
+                foreach (var segment in bodySegments)
                 {
-                    Collider bulletCollider = bullet.GetComponent<Collider>();
-                    if (bulletCollider != null)
+                    Collider segmentCollider = segment.GetComponent<Collider>();
+                    if (segmentCollider != null)
                     {
                         Physics.IgnoreCollision(bulletCollider, segmentCollider);
                     }

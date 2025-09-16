@@ -58,7 +58,7 @@ public class TerrainCrowdControl : MonoBehaviour
         terrainData = terrain.terrainData;
 
         TerrainGenerator generator = GetComponent<TerrainGenerator>();
-        currentBiome = generator != null ? generator.currentbiome : BiomeType.Grassland;
+        currentBiome = generator != null ? generator.currentBiome : BiomeType.Grassland;
 
         if (autoGenerateOnStart)
         {

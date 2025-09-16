@@ -120,7 +120,7 @@ public class Bosses1 : MonoBehaviour
         // Fire bullet
         if (tip != null && bulletPrefab != null)
         {
-            GameObject bullet = Instantiate(bulletPrefab, tip.position, tip.rotation);
+            GameObject bullet = PoolManager.Instance.SpawnFromPool("bossBullet", tip.position, tip.rotation);
             Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
             if (bulletRb != null)
             {
@@ -128,13 +128,13 @@ public class Bosses1 : MonoBehaviour
             }
 
             // Ignore collision between bullet and body segments
-            foreach (var segment in bodySegments)
+            Collider bulletCollider = bullet.GetComponent<Collider>();
+            if (bulletCollider != null)
             {
-                Collider segmentCollider = segment.GetComponent<Collider>();
-                if (segmentCollider != null)
+                foreach (var segment in bodySegments)
                 {
-                    Collider bulletCollider = bullet.GetComponent<Collider>();
-                    if (bulletCollider != null)
+                    Collider segmentCollider = segment.GetComponent<Collider>();
+                    if (segmentCollider != null)
                     {
                         Physics.IgnoreCollision(bulletCollider, segmentCollider);
                     }

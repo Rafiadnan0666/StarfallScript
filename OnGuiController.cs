@@ -52,6 +52,9 @@ public class RetroHUDController : MonoBehaviour
     private Dictionary<string, TagConfig> configMap = new Dictionary<string, TagConfig>();
     private List<GameObject> allTargets = new List<GameObject>();
     private List<GameObject> objectiveTargets = new List<GameObject>();
+    private Dictionary<GameObject, Health> healthCache = new Dictionary<GameObject, Health>();
+    private Dictionary<GameObject, Objective> objectiveCache = new Dictionary<GameObject, Objective>();
+    private GameObject portalBack;
     private GUIStyle[] cachedStyles;
     private GUIStyle panelStyle;
     private GUIStyle compassStyle;
@@ -89,6 +92,7 @@ public class RetroHUDController : MonoBehaviour
 
         // Find initial targets
         RebuildTargetLists();
+        portalBack = GameObject.FindGameObjectWithTag("PortalBack");
     }
 
     void BuildConfigMap()
@@ -184,7 +188,7 @@ public class RetroHUDController : MonoBehaviour
         // Remove null/destroyed targets
         allTargets.RemoveAll(item => item == null);
         objectiveTargets.RemoveAll(item => item == null);
-        GameObject portal = GameObject.FindGameObjectWithTag("PortalBack");
+        
         // Check if all objectives are completed
         if (objectiveTargets.Count == 0)
         {
@@ -192,18 +196,20 @@ public class RetroHUDController : MonoBehaviour
         }
         else
         {
-            portal.SetActive(true);
-            portal.GetComponent<PortalBack>().enabled = false;
+            if (portalBack != null)
+            {
+                portalBack.SetActive(true);
+                portalBack.GetComponent<PortalBack>().enabled = false;
+            }
         }
     }
 
     void EnablePortalBack()
     {
-        GameObject portal = GameObject.FindGameObjectWithTag("PortalBack");
-        if (portal != null)
+        if (portalBack != null)
         {
-            portal.SetActive(true);
-            portal.GetComponent<PortalBack>().enabled = true; 
+            portalBack.SetActive(true);
+            portalBack.GetComponent<PortalBack>().enabled = true; 
         }
     }
 
@@ -238,13 +244,12 @@ public class RetroHUDController : MonoBehaviour
             DrawCompass();
         }
 
+        // Sort targets manually to avoid LINQ garbage
+        allTargets.Sort((a, b) => 
+            Vector3.Distance(mainCamera.transform.position, b.transform.position)
+            .CompareTo(Vector3.Distance(mainCamera.transform.position, a.transform.position)));
 
-        var sortedTargets = allTargets
-            .Where(t => t != null)
-            .OrderByDescending(t => Vector3.Distance(mainCamera.transform.position, t.transform.position))
-            .ToList();
-
-        foreach (var target in sortedTargets)
+        foreach (var target in allTargets)
         {
             if (target == null) continue;
 
@@ -371,13 +376,25 @@ public class RetroHUDController : MonoBehaviour
 
         if (cfg.tag == "Objective")
         {
-            Health health = target.GetComponent<Health>();
+            Health health;
+            if (!healthCache.TryGetValue(target, out health))
+            {
+                health = target.GetComponent<Health>();
+                healthCache[target] = health;
+            }
+
             if (health != null)
             {
                 displayText += $" <color=#{ColorUtility.ToHtmlStringRGB(GetHealthColor(health.CurrentHealth / health.maxHealth))}>[{health.CurrentHealth}/{health.maxHealth}]</color>";
             }
 
-            Objective obj = target.GetComponent<Objective>();
+            Objective obj;
+            if (!objectiveCache.TryGetValue(target, out obj))
+            {
+                obj = target.GetComponent<Objective>();
+                objectiveCache[target] = obj;
+            }
+
             if (obj != null)
             {
                 if (obj.isCompleted)

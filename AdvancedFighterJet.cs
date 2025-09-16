@@ -156,6 +156,21 @@ public class AdvancedFighterJet : MonoBehaviour
     public System.Action<AdvancedFighterJet> OnTargetDestroyed;
     public System.Action<AdvancedFighterJet> OnWingmanAdded;
 
+    private static List<AdvancedFighterJet> allJets = new List<AdvancedFighterJet>();
+
+    void OnEnable()
+    {
+        if (!allJets.Contains(this))
+        {
+            allJets.Add(this);
+        }
+    }
+
+    void OnDisable()
+    {
+        allJets.Remove(this);
+    }
+
     // AI States
     private enum AIState
     {
@@ -693,13 +708,24 @@ public class AdvancedFighterJet : MonoBehaviour
     {
         if (groundTargets.Count > 0)
         {
-            // Find closest ground target
-            Vector3 closestTarget = groundTargets.OrderBy(t => Vector3.Distance(transform.position, t)).First();
+            // Find closest ground target manually
+            float closestDistSqr = Mathf.Infinity;
+            Vector3 closestTarget = Vector3.zero;
+            foreach (Vector3 target in groundTargets)
+            {
+                float distSqr = (transform.position - target).sqrMagnitude;
+                if (distSqr < closestDistSqr)
+                {
+                    closestDistSqr = distSqr;
+                    closestTarget = target;
+                }
+            }
+
             FlyToPosition(closestTarget + Vector3.up * 200f); // Fly above target
             FireGuns();
 
             // Dive when close to target
-            float dist = Vector3.Distance(transform.position, closestTarget);
+            float dist = Mathf.Sqrt(closestDistSqr);
             if (dist < groundStrikeRange)
             {
                 Vector3 euler = transform.rotation.eulerAngles;
@@ -833,7 +859,7 @@ public class AdvancedFighterJet : MonoBehaviour
 
         Vector3 fireDirection = (currentTarget.transform.position - gunTransform.position).normalized + spread;
 
-        GameObject bullet = Instantiate(bulletPrefab, gunTransform.position, Quaternion.LookRotation(fireDirection));
+        GameObject bullet = PoolManager.Instance.SpawnFromPool("bullet", gunTransform.position, Quaternion.LookRotation(fireDirection));
         if (bullet != null)
         {
             Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
@@ -847,11 +873,11 @@ public class AdvancedFighterJet : MonoBehaviour
 
         if (gunMuzzleFlash != null && gunTransform != null)
         {
-            GameObject flash = Instantiate(gunMuzzleFlash, gunTransform.position, gunTransform.rotation);
+            GameObject flash = PoolManager.Instance.SpawnFromPool("muzzleFlash", gunTransform.position, gunTransform.rotation);
             if (flash != null)
             {
                 flash.transform.parent = gunTransform;
-                Destroy(flash, 0.1f);
+                StartCoroutine(DeactivateAfterTime(flash, 0.1f));
             }
         }
 
@@ -878,8 +904,8 @@ public class AdvancedFighterJet : MonoBehaviour
         {
             Vector3 target = groundTargets[0];
 
-            // Launch blast bullet
-            GameObject blastBullet = Instantiate(blastBulletPrefab, transform.position, Quaternion.identity);
+            // Launch blast bullet from pool
+            GameObject blastBullet = PoolManager.Instance.SpawnFromPool("blastBullet", transform.position, Quaternion.identity);
             BlastProjectile projectile = blastBullet.GetComponent<BlastProjectile>();
 
             if (projectile != null)
@@ -961,8 +987,8 @@ public class AdvancedFighterJet : MonoBehaviour
     {
         if (explosionEffect != null)
         {
-            GameObject explosion = Instantiate(explosionEffect, position, Quaternion.identity);
-            Destroy(explosion, 3f);
+            GameObject explosion = PoolManager.Instance.SpawnFromPool("explosion", position, Quaternion.identity);
+            StartCoroutine(DeactivateAfterTime(explosion, 3f));
         }
 
         if (explosionSound != null)
@@ -981,6 +1007,15 @@ public class AdvancedFighterJet : MonoBehaviour
             }
         }
     }
+
+    private IEnumerator DeactivateAfterTime(GameObject obj, float time)
+    {
+        yield return new WaitForSeconds(time);
+        if (obj != null)
+        {
+            obj.SetActive(false);
+        }
+    }
     #endregion
 
     #region Detection
@@ -990,26 +1025,7 @@ public class AdvancedFighterJet : MonoBehaviour
         {
             detectedTargets.Clear();
 
-            AdvancedFighterJet[] allJets = FindObjectsOfType<AdvancedFighterJet>();
-            GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-
-            if (playerObj != null)
-            {
-                AdvancedFighterJet playerJet = playerObj.GetComponent<AdvancedFighterJet>();
-                if (playerJet != null && playerJet.team != team)
-                {
-                    float distance = Vector3.Distance(transform.position, playerObj.transform.position);
-                    if (distance <= radarRange)
-                    {
-                        float angle = Vector3.Angle(transform.forward, playerObj.transform.position - transform.position);
-                        if (angle <= radarFOV / 2f)
-                        {
-                            detectedTargets.Add(playerJet);
-                        }
-                    }
-                }
-            }
-
+            // Use the static list of all jets
             foreach (AdvancedFighterJet jet in allJets)
             {
                 if (jet == this || jet.team == team) continue;
@@ -1029,11 +1045,41 @@ public class AdvancedFighterJet : MonoBehaviour
                 }
             }
 
+            if (player != null)
+            {
+                AdvancedFighterJet playerJet = player.GetComponent<AdvancedFighterJet>();
+                if (playerJet != null && playerJet.team != team)
+                {
+                    float distance = Vector3.Distance(transform.position, player.transform.position);
+                    if (distance <= radarRange)
+                    {
+                        float angle = Vector3.Angle(transform.forward, player.transform.position - transform.position);
+                        if (angle <= radarFOV / 2f)
+                        {
+                            if (!detectedTargets.Contains(playerJet))
+                            {
+                                detectedTargets.Add(playerJet);
+                            }
+                        }
+                    }
+                }
+            }
+
             if (detectedTargets.Count > 0)
             {
-                currentTarget = detectedTargets
-                    .OrderBy(t => Vector3.Distance(transform.position, t.transform.position))
-                    .First();
+                // Find the closest target manually
+                float closestDistSqr = Mathf.Infinity;
+                AdvancedFighterJet closestTarget = null;
+                foreach (AdvancedFighterJet target in detectedTargets)
+                {
+                    float distSqr = (transform.position - target.transform.position).sqrMagnitude;
+                    if (distSqr < closestDistSqr)
+                    {
+                        closestDistSqr = distSqr;
+                        closestTarget = target;
+                    }
+                }
+                currentTarget = closestTarget;
             }
             else
             {
