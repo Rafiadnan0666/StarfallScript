@@ -32,7 +32,7 @@ public class TextureAndSmallController : MonoBehaviour
         terrain = GetComponent<Terrain>();
         terrainData = terrain.terrainData;
         terrainGenerator = GetComponent<TerrainGenerator>();
-        currentBiome = terrainGenerator.currentbiome;
+        currentBiome = terrainGenerator.currentBiome;
 
         ApplyBiomeTextures();
         SpawnSmallDebris();

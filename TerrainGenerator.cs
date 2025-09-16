@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using System.Collections.Generic;
 using TMPro;
 using System.Collections;
+using System;
 
 [RequireComponent(typeof(Terrain))]
 [RequireComponent(typeof(TerrainCollider))]
@@ -23,7 +24,7 @@ public class TerrainGenerator : MonoBehaviour
     public float maxSlope = 50f;
     public float minHeight = 0f;
 
-    public BiomeType currentbiome;
+    public BiomeType currentBiome;
 
     [Header("Mountain Settings")]
     public float mountainHeight = 1.2f;
@@ -75,7 +76,7 @@ public class TerrainGenerator : MonoBehaviour
     public TextMeshProUGUI biomeInfoText;
     public GameObject[] objectivePrefabs;
 
-    public Terrain terrain;
+    private Terrain terrain;
     private TerrainCollider terrainCollider;
     private PlanetSituation situation;
     private List<GameObject> spawnedObjects = new List<GameObject>();
@@ -83,12 +84,14 @@ public class TerrainGenerator : MonoBehaviour
     private List<Terrain> neighborTerrains = new List<Terrain>();
     private GameObject waterPlane;
     private int seed;
-    private Player _player; // Cached player reference
+    private Player player;
+    private BiomeObjects currentBiomeObjects;
+    private bool isGenerating = false;
 
     void Start()
     {
-        seed = Random.Range(0, int.MaxValue);
-        Random.InitState(seed);
+        seed = UnityEngine.Random.Range(0, int.MaxValue);
+        UnityEngine.Random.InitState(seed);
 
         InitializeComponents();
         LoadPlanetData();
@@ -97,12 +100,14 @@ public class TerrainGenerator : MonoBehaviour
 
     public IEnumerator GenerateTerrainAsync()
     {
+        isGenerating = true;
         yield return StartCoroutine(GenerateTerrainCoroutine());
         CreateWaterPlane();
-        SpawnEnvironmentObjects();
+        yield return StartCoroutine(SpawnEnvironmentObjectsAsync());
         ApplyEnvironmentalEffects();
-        _player = FindObjectOfType<Player>();
+        player = FindObjectOfType<Player>();
         UpdateBiomeInfo();
+        isGenerating = false;
     }
 
     void InitializeComponents()
@@ -122,27 +127,38 @@ public class TerrainGenerator : MonoBehaviour
         else
         {
             Debug.LogWarning("No PlanetManager found. Using default settings.");
-            situation = new PlanetSituation
-            {
-                biome = (BiomeType)Random.Range(0, 4),
-                gravity = Random.Range(7f, 12f),
-                waveHeight = Random.Range(0.1f, 0.5f),
-                grassDensity = Random.Range(0.7f, 1.3f),
-                temperature = Random.Range(-20f, 40f),
-                primaryObjective = (ObjectiveType)Random.Range(0, 1),
-                minObjectives = Random.Range(1, 4),
-                maxObjectives = Random.Range(2, 5),
-                hasEarthquakes = Random.value > 0.7f,
-                earthquakeIntensity = Random.Range(0.05f, 0.2f),
-                waterColor = new Color(Random.Range(0.1f, 0.3f), Random.Range(0.3f, 0.6f), Random.Range(0.7f, 0.9f), Random.Range(0.6f, 0.8f))
-            };
+            situation = CreateDefaultPlanetSituation();
         }
 
         // Procedurally set parameters based on biome
         ProceduralParameterSetup();
 
         Debug.Log($"Loaded Planet Situation: {situation.biome}, Gravity: {situation.gravity}, Temperature: {situation.temperature}");
-        currentbiome = situation.biome;
+        currentBiome = situation.biome;
+        currentBiomeObjects = GetCurrentBiome();
+    }
+
+    PlanetSituation CreateDefaultPlanetSituation()
+    {
+        return new PlanetSituation
+        {
+            biome = (BiomeType)UnityEngine.Random.Range(0, 4),
+            gravity = UnityEngine.Random.Range(7f, 12f),
+            waveHeight = UnityEngine.Random.Range(0.1f, 0.5f),
+            grassDensity = UnityEngine.Random.Range(0.7f, 1.3f),
+            temperature = UnityEngine.Random.Range(-20f, 40f),
+            primaryObjective = (ObjectiveType)UnityEngine.Random.Range(0, 1),
+            minObjectives = UnityEngine.Random.Range(1, 4),
+            maxObjectives = UnityEngine.Random.Range(2, 5),
+            hasEarthquakes = UnityEngine.Random.value > 0.7f,
+            earthquakeIntensity = UnityEngine.Random.Range(0.05f, 0.2f),
+            waterColor = new Color(
+                UnityEngine.Random.Range(0.1f, 0.3f),
+                UnityEngine.Random.Range(0.3f, 0.6f),
+                UnityEngine.Random.Range(0.7f, 0.9f),
+                UnityEngine.Random.Range(0.6f, 0.8f)
+            )
+        };
     }
 
     void ProceduralParameterSetup()
@@ -151,92 +167,91 @@ public class TerrainGenerator : MonoBehaviour
         switch (situation.biome)
         {
             case BiomeType.Forest:
-                waterLevel = Random.Range(0.12f, 0.18f);
-                mountainHeight = Random.Range(0.8f, 1.4f);
-                mountainCount = Random.Range(5, 9);
-                hillHeight = Random.Range(0.4f, 0.7f);
-                valleyDepth = Random.Range(0.3f, 0.5f);
-                riverCount = Random.Range(1, 3);
-                pathCount = Random.Range(3, 6);
-                objectDensity = Random.Range(0.2f, 0.3f);
+                waterLevel = UnityEngine.Random.Range(0.12f, 0.18f);
+                mountainHeight = UnityEngine.Random.Range(0.8f, 1.4f);
+                mountainCount = UnityEngine.Random.Range(5, 9);
+                hillHeight = UnityEngine.Random.Range(0.4f, 0.7f);
+                valleyDepth = UnityEngine.Random.Range(0.3f, 0.5f);
+                riverCount = UnityEngine.Random.Range(1, 3);
+                pathCount = UnityEngine.Random.Range(3, 6);
+                objectDensity = UnityEngine.Random.Range(0.2f, 0.3f);
                 break;
 
             case BiomeType.Desert:
-                waterLevel = Random.Range(0.05f, 0.1f);
-                mountainHeight = Random.Range(1.0f, 1.8f);
-                mountainCount = Random.Range(3, 6);
-                hillHeight = Random.Range(0.3f, 0.6f);
-                valleyDepth = Random.Range(0.2f, 0.4f);
-                riverCount = Random.Range(0, 1);
-                pathCount = Random.Range(2, 4);
-                objectDensity = Random.Range(0.1f, 0.2f);
+                waterLevel = UnityEngine.Random.Range(0.05f, 0.1f);
+                mountainHeight = UnityEngine.Random.Range(1.0f, 1.8f);
+                mountainCount = UnityEngine.Random.Range(3, 6);
+                hillHeight = UnityEngine.Random.Range(0.3f, 0.6f);
+                valleyDepth = UnityEngine.Random.Range(0.2f, 0.4f);
+                riverCount = UnityEngine.Random.Range(0, 1);
+                pathCount = UnityEngine.Random.Range(2, 4);
+                objectDensity = UnityEngine.Random.Range(0.1f, 0.2f);
                 break;
 
             case BiomeType.Snowy:
-                waterLevel = Random.Range(0.1f, 0.15f);
-                mountainHeight = Random.Range(1.5f, 2.2f);
-                mountainCount = Random.Range(6, 10);
-                hillHeight = Random.Range(0.5f, 0.8f);
-                valleyDepth = Random.Range(0.4f, 0.6f);
-                riverCount = Random.Range(1, 2);
-                pathCount = Random.Range(2, 4);
-                objectDensity = Random.Range(0.08f, 0.15f);
+                waterLevel = UnityEngine.Random.Range(0.1f, 0.15f);
+                mountainHeight = UnityEngine.Random.Range(1.5f, 2.2f);
+                mountainCount = UnityEngine.Random.Range(6, 10);
+                hillHeight = UnityEngine.Random.Range(0.5f, 0.8f);
+                valleyDepth = UnityEngine.Random.Range(0.4f, 0.6f);
+                riverCount = UnityEngine.Random.Range(1, 2);
+                pathCount = UnityEngine.Random.Range(2, 4);
+                objectDensity = UnityEngine.Random.Range(0.08f, 0.15f);
                 break;
 
             case BiomeType.Grassland:
-                waterLevel = Random.Range(0.15f, 0.22f);
-                mountainHeight = Random.Range(0.6f, 1.0f);
-                mountainCount = Random.Range(2, 5);
-                hillHeight = Random.Range(0.6f, 0.9f);
-                valleyDepth = Random.Range(0.3f, 0.5f);
-                riverCount = Random.Range(2, 4);
-                pathCount = Random.Range(4, 7);
-                objectDensity = Random.Range(0.25f, 0.4f);
+                waterLevel = UnityEngine.Random.Range(0.15f, 0.22f);
+                mountainHeight = UnityEngine.Random.Range(0.6f, 1.0f);
+                mountainCount = UnityEngine.Random.Range(2, 5);
+                hillHeight = UnityEngine.Random.Range(0.6f, 0.9f);
+                valleyDepth = UnityEngine.Random.Range(0.3f, 0.5f);
+                riverCount = UnityEngine.Random.Range(2, 4);
+                pathCount = UnityEngine.Random.Range(4, 7);
+                objectDensity = UnityEngine.Random.Range(0.25f, 0.4f);
                 break;
         }
 
         // Add some random variation to all parameters
-        scale = Random.Range(10f, 200f);
-        mountainScale = Random.Range(0.005f, 0.12f);
-        mountainFalloff = Random.Range(1.5f, 2.2f);
-        mountainRoughness = Random.Range(0.03f, 0.07f);
-        hillScale = Random.Range(0.02f, 200f);
-        hillFrequency = Random.Range(3f, 5f);
-        hillSharpness = Random.Range(1.5f, 2.5f);
-        valleyWidth = Random.Range(0.15f, 0.25f);
-        valleyCount = Random.Range(2, 5);
-        riverWidth = Random.Range(6f, 12f);
-        riverDepth = Random.Range(0.2f, 0.4f);
-        riverCurviness = Random.Range(0.5f, 0.9f);
-        pathWidth = Random.Range(12f, 18f);
-        pathDepth = Random.Range(0.06f, 0.1f);
-        pathSmoothness = Random.Range(0.5f, 0.7f);
-        minObjectSpacing = Random.Range(6f, 10f);
-        crowdDensityMultiplier = Random.Range(1.2f, 1.8f);
-        crowdRadius = Random.Range(18f, 25f);
-        fogDensity = Random.Range(0.0001f, 0.0002f);
-        windStrength = Random.Range(0.3f, 0.7f);
-        windDirection = Random.insideUnitCircle.normalized;
+        scale = UnityEngine.Random.Range(10f, 200f);
+        mountainScale = UnityEngine.Random.Range(0.005f, 0.12f);
+        mountainFalloff = UnityEngine.Random.Range(1.5f, 2.2f);
+        mountainRoughness = UnityEngine.Random.Range(0.03f, 0.07f);
+        hillScale = UnityEngine.Random.Range(0.02f, 200f);
+        hillFrequency = UnityEngine.Random.Range(3f, 5f);
+        hillSharpness = UnityEngine.Random.Range(1.5f, 2.5f);
+        valleyWidth = UnityEngine.Random.Range(0.15f, 0.25f);
+        valleyCount = UnityEngine.Random.Range(2, 5);
+        riverWidth = UnityEngine.Random.Range(6f, 12f);
+        riverDepth = UnityEngine.Random.Range(0.2f, 0.4f);
+        riverCurviness = UnityEngine.Random.Range(0.5f, 0.9f);
+        pathWidth = UnityEngine.Random.Range(12f, 18f);
+        pathDepth = UnityEngine.Random.Range(0.06f, 0.1f);
+        pathSmoothness = UnityEngine.Random.Range(0.5f, 0.7f);
+        minObjectSpacing = UnityEngine.Random.Range(6f, 10f);
+        crowdDensityMultiplier = UnityEngine.Random.Range(1.2f, 1.8f);
+        crowdRadius = UnityEngine.Random.Range(18f, 25f);
+        fogDensity = UnityEngine.Random.Range(0.0001f, 0.0002f);
+        windStrength = UnityEngine.Random.Range(0.3f, 0.7f);
+        windDirection = UnityEngine.Random.insideUnitCircle.normalized;
     }
 
     IEnumerator GenerateTerrainCoroutine()
     {
-        BiomeObjects biome = GetCurrentBiome();
-
         TerrainData terrainData = new TerrainData();
         terrainData.size = new Vector3(width, depth, height);
-        terrainData.heightmapResolution = Mathf.NextPowerOfTwo(width) + 1;
+        int resolution = Mathf.NextPowerOfTwo(width) + 1;
+        terrainData.heightmapResolution = resolution;
 
-        float[,] heights = new float[terrainData.heightmapResolution, terrainData.heightmapResolution];
-        yield return StartCoroutine(GenerateHeightmapCoroutine(heights, terrainData.heightmapResolution));
+        float[,] heights = new float[resolution, resolution];
+        yield return StartCoroutine(GenerateHeightmapCoroutine(heights, resolution));
 
         terrainData.SetHeights(0, 0, heights);
 
         terrain.terrainData = terrainData;
         terrainCollider.terrainData = terrainData;
 
-        ApplyBiomeTextures(terrainData, biome);
-        ApplyBiomeDetails(terrainData, biome);
+        ApplyBiomeTextures(terrainData, currentBiomeObjects);
+        ApplyBiomeDetails(terrainData, currentBiomeObjects);
     }
 
     IEnumerator GenerateHeightmapCoroutine(float[,] heights, int resolution)
@@ -312,54 +327,17 @@ public class TerrainGenerator : MonoBehaviour
                     z * grassSpacing + terrainPos.z
                 );
 
-                Quaternion rot = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
+                Quaternion rot = Quaternion.Euler(0, UnityEngine.Random.Range(0f, 360f), 0);
                 GameObject grass = Instantiate(biome.Grass, worldPos, rot, terrain.transform);
-                grass.transform.localScale *= Random.Range(0.9f, 1.1f);
+                grass.transform.localScale *= UnityEngine.Random.Range(0.9f, 1.1f);
             }
         }
 
         Debug.Log("🌿 Grass spawned across terrain.");
     }
 
-    void GenerateNeighborTerrains()
-    {
-        BiomeObjects currentBiome = GetCurrentBiome();
-
-        for (int i = 0; i < neighborTerrainCount; i++)
-        {
-            GameObject neighborObj = new GameObject($"NeighborTerrain_{i}");
-
-            float xOffset = (i == 0) ? -width : width;
-            Vector3 position = transform.position + new Vector3(xOffset, 0, 0);
-            neighborObj.transform.position = position;
-
-            Terrain neighborTerrain = neighborObj.AddComponent<Terrain>();
-            TerrainCollider neighborCollider = neighborObj.AddComponent<TerrainCollider>();
-
-            TerrainData neighborData = new TerrainData();
-            neighborData.heightmapResolution = Mathf.NextPowerOfTwo(width) + 1;
-            neighborData.size = new Vector3(width, depth, height);
-
-            float[,] neighborHeights = GenerateHeightmap(neighborData.heightmapResolution);
-            neighborData.SetHeights(0, 0, neighborHeights);
-
-            ApplyBiomeTextures(neighborData, currentBiome);
-            ApplyBiomeDetails(neighborData, currentBiome);
-
-            neighborTerrain.terrainData = neighborData;
-            neighborCollider.terrainData = neighborData;
-
-            neighborTerrains.Add(neighborTerrain);
-        }
-
-        UpdateTerrainConnections();
-    }
-
-    // Fixed method - replaced GenerateHeightmap with GenerateHeightmapCoroutine
     IEnumerator GenerateNeighborTerrainsCoroutine()
     {
-        BiomeObjects currentBiome = GetCurrentBiome();
-
         for (int i = 0; i < neighborTerrainCount; i++)
         {
             GameObject neighborObj = new GameObject($"NeighborTerrain_{i}");
@@ -380,8 +358,8 @@ public class TerrainGenerator : MonoBehaviour
 
             neighborData.SetHeights(0, 0, neighborHeights);
 
-            ApplyBiomeTextures(neighborData, currentBiome);
-            ApplyBiomeDetails(neighborData, currentBiome);
+            ApplyBiomeTextures(neighborData, currentBiomeObjects);
+            ApplyBiomeDetails(neighborData, currentBiomeObjects);
 
             neighborTerrain.terrainData = neighborData;
             neighborCollider.terrainData = neighborData;
@@ -466,11 +444,11 @@ public class TerrainGenerator : MonoBehaviour
         for (int i = 0; i < mountainCount; i++)
         {
             Vector2 mountainCenter = new Vector2(
-                Random.Range(0.1f, 0.9f) * resolution,
-                Random.Range(0.1f, 0.9f) * resolution);
+                UnityEngine.Random.Range(0.1f, 0.9f) * resolution,
+                UnityEngine.Random.Range(0.1f, 0.9f) * resolution);
 
-            float mountainHeightVariation = mountainHeight * Random.Range(0.8f, 1.2f);
-            float mountainFalloffVariation = mountainFalloff * Random.Range(0.7f, 1.3f);
+            float mountainHeightVariation = mountainHeight * UnityEngine.Random.Range(0.8f, 1.2f);
+            float mountainFalloffVariation = mountainFalloff * UnityEngine.Random.Range(0.7f, 1.3f);
 
             for (int x = 0; x < resolution; x++)
             {
@@ -501,7 +479,7 @@ public class TerrainGenerator : MonoBehaviour
 
     IEnumerator AddHillsCoroutine(float[,] heights, int resolution)
     {
-        float scaleVariation = Random.Range(0.8f, 1.2f);
+        float scaleVariation = UnityEngine.Random.Range(0.8f, 1.2f);
 
         for (int x = 0; x < resolution; x++)
         {
@@ -531,8 +509,8 @@ public class TerrainGenerator : MonoBehaviour
     {
         for (int i = 0; i < valleyCount; i++)
         {
-            Vector2 valleyDirection = Random.insideUnitCircle.normalized;
-            float valleyOffset = Random.Range(0f, 100f);
+            Vector2 valleyDirection = UnityEngine.Random.insideUnitCircle.normalized;
+            float valleyOffset = UnityEngine.Random.Range(0f, 100f);
 
             for (int x = 0; x < resolution; x++)
             {
@@ -560,19 +538,19 @@ public class TerrainGenerator : MonoBehaviour
     IEnumerator GenerateRiverCoroutine(float[,] heights, int resolution)
     {
         Vector2 start = new Vector2(
-            Random.Range(0.1f, 0.9f) * resolution,
-            Random.Range(0.1f, 0.9f) * resolution);
+            UnityEngine.Random.Range(0.1f, 0.9f) * resolution,
+            UnityEngine.Random.Range(0.1f, 0.9f) * resolution);
 
         Vector2 end = new Vector2(
-            Random.Range(0.1f, 0.9f) * resolution,
-            Random.Range(0.1f, 0.9f) * resolution);
+            UnityEngine.Random.Range(0.1f, 0.9f) * resolution,
+            UnityEngine.Random.Range(0.1f, 0.9f) * resolution);
 
         List<Vector2> riverPoints = new List<Vector2>();
         int segments = 30 + Mathf.RoundToInt(riverCurviness * 20f);
 
         // Generate more natural river path with multiple control points
-        Vector2 control1 = Vector2.Lerp(start, end, 0.3f) + Random.insideUnitCircle * resolution * 0.15f;
-        Vector2 control2 = Vector2.Lerp(start, end, 0.7f) + Random.insideUnitCircle * resolution * 0.15f;
+        Vector2 control1 = Vector2.Lerp(start, end, 0.3f) + UnityEngine.Random.insideUnitCircle * resolution * 0.15f;
+        Vector2 control2 = Vector2.Lerp(start, end, 0.7f) + UnityEngine.Random.insideUnitCircle * resolution * 0.15f;
 
         for (int i = 0; i <= segments; i++)
         {
@@ -656,14 +634,14 @@ public class TerrainGenerator : MonoBehaviour
         TerrainLayer baseLayer = new TerrainLayer();
         baseLayer.diffuseTexture = biome.groundTexture;
         baseLayer.tileSize = new Vector2(15, 15);
-        baseLayer.tileOffset = new Vector2(Random.Range(0f, 5f), Random.Range(0f, 5f));
+        baseLayer.tileOffset = new Vector2(UnityEngine.Random.Range(0f, 5f), UnityEngine.Random.Range(0f, 5f));
         layers.Add(baseLayer);
 
         // Mountain layer
         TerrainLayer mountainLayer = new TerrainLayer();
         mountainLayer.diffuseTexture = biome.mountainTexture;
         mountainLayer.tileSize = new Vector2(20, 20);
-        mountainLayer.tileOffset = new Vector2(Random.Range(0f, 5f), Random.Range(0f, 5f));
+        mountainLayer.tileOffset = new Vector2(UnityEngine.Random.Range(0f, 5f), UnityEngine.Random.Range(0f, 5f));
         layers.Add(mountainLayer);
 
         terrainData.terrainLayers = layers.ToArray();
@@ -714,11 +692,11 @@ public class TerrainGenerator : MonoBehaviour
             prototypeTexture = biome.grassTexture,
             healthyColor = biome.grassHealthyColor,
             dryColor = biome.grassDryColor,
-            minWidth = 1.0f + Random.Range(-0.2f, 0.2f),
-            maxWidth = 2.0f + Random.Range(-0.3f, 0.3f),
-            minHeight = 1.0f + Random.Range(-0.2f, 0.2f),
-            maxHeight = 2.0f + Random.Range(-0.3f, 0.3f),
-            noiseSpread = 0.15f + Random.Range(-0.05f, 0.05f),
+            minWidth = 1.0f + UnityEngine.Random.Range(-0.2f, 0.2f),
+            maxWidth = 2.0f + UnityEngine.Random.Range(-0.3f, 0.3f),
+            minHeight = 1.0f + UnityEngine.Random.Range(-0.2f, 0.2f),
+            maxHeight = 2.0f + UnityEngine.Random.Range(-0.3f, 0.3f),
+            noiseSpread = 0.15f + UnityEngine.Random.Range(-0.05f, 0.05f),
             renderMode = DetailRenderMode.GrassBillboard
         };
 
@@ -761,7 +739,7 @@ public class TerrainGenerator : MonoBehaviour
         Debug.Log("🌱 Grass detail layer applied.");
     }
 
-    void SpawnEnvironmentObjects()
+    IEnumerator SpawnEnvironmentObjectsAsync()
     {
         ClearExistingObjects();
 
@@ -769,11 +747,11 @@ public class TerrainGenerator : MonoBehaviour
         {
             if (biomeObj.biomeType == situation.biome)
             {
-                SpawnObjectGroup(biomeObj.objects, GetBiomeDensity());
+                yield return StartCoroutine(SpawnObjectGroupAsync(biomeObj.objects, GetBiomeDensity()));
 
                 if (biomeObj.supportsCrowds)
                 {
-                    SpawnCrowdClusters(biomeObj.crowdObjects, GetBiomeDensity() * crowdDensityMultiplier * 0.3f, biomeObj.Grass);
+                    yield return StartCoroutine(SpawnCrowdClustersAsync(biomeObj.crowdObjects, GetBiomeDensity() * crowdDensityMultiplier * 0.3f, biomeObj.Grass));
                 }
             }
         }
@@ -781,39 +759,10 @@ public class TerrainGenerator : MonoBehaviour
         SpawnObjectivesAlongPaths();
     }
 
-    void SpawnCrowdGrass(float density, GameObject grassPrefab, List<Vector3> clusterCenters)
-    {
-        if (grassPrefab == null || clusterCenters == null || clusterCenters.Count == 0)
-            return;
-
-        List<Vector3> usedPositions = new List<Vector3>();
-
-        foreach (Vector3 clusterCenter in clusterCenters)
-        {
-            int crowdSize = Random.Range(3, 8);
-            for (int j = 0; j < crowdSize; j++)
-            {
-                Vector3 offset = Random.insideUnitSphere * 0.2f;
-                offset.y = 0;
-
-                Vector3 spawnPos = clusterCenter + offset;
-                spawnPos.y = terrain.SampleHeight(spawnPos);
-
-                if (!IsPositionValid(spawnPos, clusterCenters) || !IsPositionValid(spawnPos, usedPositions))
-                    continue;
-
-                usedPositions.Add(spawnPos);
-
-                Quaternion rotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
-                Instantiate(grassPrefab, spawnPos, rotation);
-            }
-        }
-    }
-
-    void SpawnCrowdClusters(GameObject[] crowdPrefabs, float density, GameObject grassPrefab)
+    IEnumerator SpawnCrowdClustersAsync(GameObject[] crowdPrefabs, float density, GameObject grassPrefab)
     {
         if (crowdPrefabs == null || crowdPrefabs.Length == 0 || grassPrefab == null)
-            return;
+            yield break;
 
         int clusterCount = Mathf.RoundToInt(density * 5f);
         List<Vector3> clusterCenters = new List<Vector3>();
@@ -826,10 +775,10 @@ public class TerrainGenerator : MonoBehaviour
 
             clusterCenters.Add(clusterCenter);
 
-            int crowdSize = Random.Range(3, 8);
+            int crowdSize = UnityEngine.Random.Range(3, 8);
             for (int j = 0; j < crowdSize; j++)
             {
-                Vector3 offset = Random.insideUnitSphere * crowdRadius;
+                Vector3 offset = UnityEngine.Random.insideUnitSphere * crowdRadius;
                 offset.y = 0;
 
                 Vector3 spawnPos = clusterCenter + offset;
@@ -840,21 +789,53 @@ public class TerrainGenerator : MonoBehaviour
 
                 usedPositions.Add(spawnPos);
 
-                Quaternion rotation = Quaternion.Euler(0, Random.Range(0f, 360f), 0);
+                Quaternion rotation = Quaternion.Euler(0, UnityEngine.Random.Range(0f, 360f), 0);
 
                 // Instantiate Grass
                 Instantiate(grassPrefab, spawnPos, rotation);
 
                 // Instantiate Crowd Object
-                GameObject selectedPrefab = crowdPrefabs[Random.Range(0, crowdPrefabs.Length)];
+                GameObject selectedPrefab = crowdPrefabs[UnityEngine.Random.Range(0, crowdPrefabs.Length)];
                 GameObject entity = Instantiate(selectedPrefab, spawnPos, rotation);
-                entity.transform.localScale = Vector3.one * Random.Range(0.8f, 1.0f);
+                entity.transform.localScale = Vector3.one * UnityEngine.Random.Range(0.8f, 1.0f);
 
                 spawnedObjects.Add(entity);
             }
+
+            if (i % 5 == 0)
+                yield return null;
         }
 
         SpawnCrowdGrass(density * 0.6f, grassPrefab, clusterCenters);
+    }
+
+    void SpawnCrowdGrass(float density, GameObject grassPrefab, List<Vector3> clusterCenters)
+    {
+        if (grassPrefab == null || clusterCenters == null || clusterCenters.Count == 0)
+            return;
+
+        List<Vector3> usedPositions = new List<Vector3>();
+
+        foreach (Vector3 clusterCenter in clusterCenters)
+        {
+            int crowdSize = UnityEngine.Random.Range(3, 8);
+            for (int j = 0; j < crowdSize; j++)
+            {
+                Vector3 offset = UnityEngine.Random.insideUnitSphere * 0.2f;
+                offset.y = 0;
+
+                Vector3 spawnPos = clusterCenter + offset;
+                spawnPos.y = terrain.SampleHeight(spawnPos);
+
+                if (!IsPositionValid(spawnPos, clusterCenters) || !IsPositionValid(spawnPos, usedPositions))
+                    continue;
+
+                usedPositions.Add(spawnPos);
+
+                Quaternion rotation = Quaternion.Euler(0, UnityEngine.Random.Range(0f, 360f), 0);
+                Instantiate(grassPrefab, spawnPos, rotation);
+            }
+        }
     }
 
     void ClearExistingObjects()
@@ -870,7 +851,7 @@ public class TerrainGenerator : MonoBehaviour
     {
         RenderSettings.fog = true;
         RenderSettings.fogColor = fogColorByBiome.Evaluate((float)situation.biome / 3f);
-        RenderSettings.fogDensity = fogDensity * Random.Range(0.8f, 1.2f);
+        RenderSettings.fogDensity = fogDensity * UnityEngine.Random.Range(0.8f, 1.2f);
 
         if (waterPlane != null)
         {
@@ -880,7 +861,7 @@ public class TerrainGenerator : MonoBehaviour
         if (environmentParticles.Length > 0)
         {
             GameObject particles = Instantiate(
-                environmentParticles[Random.Range(0, environmentParticles.Length)],
+                environmentParticles[UnityEngine.Random.Range(0, environmentParticles.Length)],
                 Vector3.zero,
                 Quaternion.identity
             );
@@ -942,8 +923,8 @@ public class TerrainGenerator : MonoBehaviour
                 float avg = (heights[x, y] + heights[x + 1, y] + heights[x - 1, y] +
                            heights[x, y + 1] + heights[x, y - 1]) / 5f;
 
-                float detailX = x * erosionDetail + Random.Range(-100f, 100f);
-                float detailY = y * erosionDetail + Random.Range(-100f, 100f);
+                float detailX = x * erosionDetail + UnityEngine.Random.Range(-100f, 100f);
+                float detailY = y * erosionDetail + UnityEngine.Random.Range(-100f, 100f);
                 float detail = Mathf.PerlinNoise(detailX, detailY) * erosionVariation;
 
                 eroded[x, y] = Mathf.Lerp(heights[x, y], avg, erosionStrength) + detail * 0.1f;
@@ -1022,11 +1003,11 @@ public class TerrainGenerator : MonoBehaviour
         }
     }
 
-    void SpawnObjectGroup(GameObject[] prefabs, float density)
+    IEnumerator SpawnObjectGroupAsync(GameObject[] prefabs, float density)
     {
-        if (prefabs == null || prefabs.Length == 0) return;
+        if (prefabs == null || prefabs.Length == 0) yield break;
 
-        int objectCount = Mathf.RoundToInt(width * height * 0.0001f * density * Random.Range(0.8f, 1.2f));
+        int objectCount = Mathf.RoundToInt(width * height * 0.0001f * density * UnityEngine.Random.Range(0.8f, 1.2f));
         List<Vector3> spawnedPositions = new List<Vector3>();
 
         for (int i = 0; i < objectCount; i++)
@@ -1036,9 +1017,9 @@ public class TerrainGenerator : MonoBehaviour
 
             if (!IsPositionValid(position, spawnedPositions)) continue;
 
-            GameObject prefab = prefabs[Random.Range(0, prefabs.Length)];
-            Quaternion rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-            float scaleVariation = Random.Range(0.8f, 20f);
+            GameObject prefab = prefabs[UnityEngine.Random.Range(0, prefabs.Length)];
+            Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
+            float scaleVariation = UnityEngine.Random.Range(0.8f, 20f);
             Vector3 scale = Vector3.one * scaleVariation;
 
             GameObject obj = Instantiate(prefab, position, rotation);
@@ -1051,6 +1032,9 @@ public class TerrainGenerator : MonoBehaviour
 
             spawnedObjects.Add(obj);
             spawnedPositions.Add(position);
+
+            if (i % 20 == 0)
+                yield return null;
         }
     }
 
@@ -1058,7 +1042,7 @@ public class TerrainGenerator : MonoBehaviour
     {
         if (pathPoints.Count < 2 || objectivePrefabs.Length == 0) return;
 
-        int objectiveCount = Random.Range(situation.minObjectives, situation.maxObjectives + 1);
+        int objectiveCount = UnityEngine.Random.Range(situation.minObjectives, situation.maxObjectives + 1);
         float pathLength = CalculatePathLength();
 
         for (int i = 0; i < objectiveCount; i++)
@@ -1068,15 +1052,11 @@ public class TerrainGenerator : MonoBehaviour
 
             if (position != Vector3.zero)
             {
-                GameObject prefab = objectivePrefabs[Random.Range(0, objectivePrefabs.Length)];
+                GameObject prefab = objectivePrefabs[UnityEngine.Random.Range(0, objectivePrefabs.Length)];
                 Objective objective = Instantiate(prefab, position, Quaternion.identity).GetComponent<Objective>();
 
                 if (objective != null)
                 {
-                    //objective.objectiveType = (i == 0) ?
-                    //    (Objective.ObjectiveType)(int)situation.primaryObjective :
-                    //    (Objective.ObjectiveType)Random.Range(0, System.Enum.GetValues(typeof(Objective.ObjectiveType)).Length);
-
                     objective.transform.localScale = Vector3.one * 1.3f;
                     spawnedObjects.Add(objective.gameObject);
                 }
@@ -1155,16 +1135,16 @@ public class TerrainGenerator : MonoBehaviour
         switch (situation.biome)
         {
             case BiomeType.Forest:
-                density *= situation.treeDensity * Random.Range(0.9f, 1.1f);
+                density *= situation.treeDensity * UnityEngine.Random.Range(0.9f, 1.1f);
                 break;
             case BiomeType.Desert:
-                density *= situation.rockDensity * Random.Range(0.8f, 1.2f);
+                density *= situation.rockDensity * UnityEngine.Random.Range(0.8f, 1.2f);
                 break;
             case BiomeType.Snowy:
-                density *= situation.rockDensity * 0.6f * Random.Range(0.7f, 1.3f);
+                density *= situation.rockDensity * 0.6f * UnityEngine.Random.Range(0.7f, 1.3f);
                 break;
             case BiomeType.Grassland:
-                density *= situation.grassDensity * Random.Range(0.9f, 1.1f);
+                density *= situation.grassDensity * UnityEngine.Random.Range(0.9f, 1.1f);
                 break;
         }
 
@@ -1174,17 +1154,17 @@ public class TerrainGenerator : MonoBehaviour
     Vector3 GetRandomTerrainPosition()
     {
         Vector3 size = terrain.terrainData.size;
-        float x = Random.Range(0, size.x);
-        float z = Random.Range(0, size.z);
+        float x = UnityEngine.Random.Range(0, size.x);
+        float z = UnityEngine.Random.Range(0, size.z);
         float y = terrain.SampleHeight(new Vector3(x, 0, z));
         return new Vector3(x, y, z);
     }
 
     void UpdateBiomeInfo()
     {
-        if (_player != null)
+        if (player != null)
         {
-            biomeInfoText = _player.info;
+            biomeInfoText = player.info;
         }
         if (biomeInfoText != null)
         {
@@ -1261,16 +1241,16 @@ public class TerrainGenerator : MonoBehaviour
         Vector3 size = terrain.terrainData.size;
 
         Vector2 start = new Vector2(
-            Random.Range(0.1f, 0.9f) * size.x,
-            Random.Range(0.1f, 0.9f) * size.z
+            UnityEngine.Random.Range(0.1f, 0.9f) * size.x,
+            UnityEngine.Random.Range(0.1f, 0.9f) * size.z
         );
         Vector2 end = new Vector2(
-            Random.Range(0.1f, 0.9f) * size.x,
-            Random.Range(0.1f, 0.9f) * size.z
+            UnityEngine.Random.Range(0.1f, 0.9f) * size.x,
+            UnityEngine.Random.Range(0.1f, 0.9f) * size.z
         );
 
-        Vector2 control1 = Vector2.Lerp(start, end, 0.33f) + Random.insideUnitCircle * size.x * 0.2f;
-        Vector2 control2 = Vector2.Lerp(start, end, 0.66f) + Random.insideUnitCircle * size.x * 0.2f;
+        Vector2 control1 = Vector2.Lerp(start, end, 0.33f) + UnityEngine.Random.insideUnitCircle * size.x * 0.2f;
+        Vector2 control2 = Vector2.Lerp(start, end, 0.66f) + UnityEngine.Random.insideUnitCircle * size.x * 0.2f;
 
         int pathSegments = 50;
 
@@ -1340,6 +1320,11 @@ public class TerrainGenerator : MonoBehaviour
                 }
             }
         }
+    }
+
+    public bool IsGenerating()
+    {
+        return isGenerating;
     }
 }
 

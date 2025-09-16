@@ -42,7 +42,7 @@ public class ObjSpawnAndGrassDenseSpawnerController : MonoBehaviour
         var gen = GetComponent<TerrainGenerator>();
         if (gen != null)
         {
-            currentBiome = gen.currentbiome;
+            currentBiome = gen.currentBiome;
         }
 
         CachePath();
