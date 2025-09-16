@@ -2,21 +2,21 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
 using UnityEngine.Profiling;
-using System.Threading.Tasks;
+using System;
 
 public class WorldStreamer : MonoBehaviour
 {
     [Header("Streaming Settings")]
     public int viewDistance = 2;
     public int chunkSize = 100;
-    public int maxChunksPerFrame = 1;
-    public float streamingUpdateInterval = 0.5f;
+    public int maxChunksPerFrame = 2;
+    public float streamingUpdateInterval = 0.1f;
     public Material defaultChunkMaterial;
 
     [Header("Performance Settings")]
     public bool useAsyncLoading = true;
     public int preWarmPoolSize = 20;
-    public float chunkUnloadDelay = 5f;
+    public bool enableColliders = true;
 
     [Header("Performance Monitoring")]
     [SerializeField] private int activeChunkCount;
@@ -24,36 +24,30 @@ public class WorldStreamer : MonoBehaviour
     [SerializeField] private int totalChunksInPool;
     [SerializeField] private int chunksLoading;
 
-    // Chunk data structure
+    // Simplified chunk data structure
     private class ChunkData
     {
         public GameObject gameObject;
-        public MeshFilter meshFilter;
-        public MeshRenderer meshRenderer;
-        public MeshCollider meshCollider;
-        public bool isActive;
         public Vector2Int coordinate;
-        public float lastUsedTime;
+        public BoxCollider boxCollider;
+        public bool isActive;
     }
 
-    // Object pooling
-    private Dictionary<Vector2Int, ChunkData> activeChunks = new Dictionary<Vector2Int, ChunkData>();
+    // Object pooling with better memory management
+    private Dictionary<Vector2Int, ChunkData> activeChunks = new Dictionary<Vector2Int, ChunkData>(64);
     private Queue<ChunkData> chunkPool = new Queue<ChunkData>();
     private HashSet<Vector2Int> neededChunks = new HashSet<Vector2Int>();
-    private HashSet<Vector2Int> chunksToUnload = new HashSet<Vector2Int>();
     private Vector2Int currentPlayerChunk;
     private Coroutine streamingCoroutine;
 
-    // Player reference
-    private Transform player;
-
-    // Pre-allocated meshes to avoid GC
-    private Mesh cachedFlatMesh;
+    // Shared mesh instance
+    private Mesh sharedChunkMesh;
     private bool isInitialized = false;
 
-    // Loading queues
-    private Queue<Vector2Int> chunkLoadQueue = new Queue<Vector2Int>(32);
-    private List<Vector2Int> processingChunks = new List<Vector2Int>(32);
+    // Performance optimization
+    private WaitForSeconds streamingWait;
+    private int squaredViewDist;
+    private List<Vector2Int> chunksToRemove = new List<Vector2Int>(32);
 
     void Start()
     {
@@ -64,8 +58,11 @@ public class WorldStreamer : MonoBehaviour
     {
         if (isInitialized) return;
 
-        FindPlayer();
+        // Pre-calculate values
+        squaredViewDist = viewDistance * viewDistance;
+        streamingWait = new WaitForSeconds(streamingUpdateInterval);
 
+        // Create shared material if none provided
         if (defaultChunkMaterial == null)
         {
             defaultChunkMaterial = new Material(Shader.Find("Standard"));
@@ -73,34 +70,17 @@ public class WorldStreamer : MonoBehaviour
             defaultChunkMaterial.enableInstancing = true;
         }
 
-        // Pre-generate mesh to avoid GC
-        cachedFlatMesh = GenerateFlatChunkMesh();
-        cachedFlatMesh.name = "CachedChunkMesh";
+        // Create shared mesh only once
+        sharedChunkMesh = CreateOptimizedChunkMesh();
+        sharedChunkMesh.name = "SharedChunkMesh";
 
         // Pre-warm object pool
         PreWarmChunkPool(preWarmPoolSize);
 
         streamingCoroutine = StartCoroutine(StreamingUpdate());
         isInitialized = true;
-    }
 
-    void FindPlayer()
-    {
-        if (player == null)
-        {
-            GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-            if (playerObj != null)
-            {
-                player = playerObj.transform;
-                return;
-            }
-
-            var mainCamera = Camera.main;
-            if (mainCamera != null)
-            {
-                player = mainCamera.transform;
-            }
-        }
+        Debug.Log($"WorldStreamer initialized with pool size: {preWarmPoolSize}");
     }
 
     void OnDestroy()
@@ -111,34 +91,49 @@ public class WorldStreamer : MonoBehaviour
         Cleanup();
     }
 
+    void OnApplicationQuit()
+    {
+        Cleanup();
+    }
+
     void Cleanup()
     {
+        // Clear active chunks
         foreach (var chunk in activeChunks.Values)
         {
-            SafeDestroy(chunk.gameObject);
+            ReturnChunkToPool(chunk);
         }
         activeChunks.Clear();
 
+        // Clear pool
         while (chunkPool.Count > 0)
         {
             var chunk = chunkPool.Dequeue();
-            SafeDestroy(chunk.gameObject);
+            DestroyChunkObject(chunk);
         }
 
-        if (cachedFlatMesh != null)
+        // Clean up shared mesh
+        if (sharedChunkMesh != null)
         {
-            DestroyImmediate(cachedFlatMesh);
+            DestroyImmediate(sharedChunkMesh);
+            sharedChunkMesh = null;
         }
+
+        chunksToRemove.Clear();
+        neededChunks.Clear();
+
+        Resources.UnloadUnusedAssets();
+        GC.Collect();
     }
 
-    void SafeDestroy(Object obj)
+    void DestroyChunkObject(ChunkData chunk)
     {
-        if (obj != null)
+        if (chunk != null && chunk.gameObject != null)
         {
             if (Application.isPlaying)
-                Destroy(obj);
+                Destroy(chunk.gameObject);
             else
-                DestroyImmediate(obj);
+                DestroyImmediate(chunk.gameObject);
         }
     }
 
@@ -147,23 +142,16 @@ public class WorldStreamer : MonoBehaviour
         if (!isInitialized) return;
 
         UpdatePerformanceMetrics();
-        ProcessDelayedUnloads();
     }
 
     IEnumerator StreamingUpdate()
     {
         while (true)
         {
-            yield return new WaitForSeconds(streamingUpdateInterval);
+            yield return streamingWait;
 
-            if (player == null)
-            {
-                FindPlayer();
-                continue;
-            }
-
-            Vector2Int playerChunk = WorldToChunk(player.position);
-            if (playerChunk != currentPlayerChunk)
+            Vector2Int playerChunk = WorldToChunk(transform.position);
+            if (playerChunk != currentPlayerChunk || activeChunks.Count == 0)
             {
                 currentPlayerChunk = playerChunk;
                 yield return StartCoroutine(ProcessChunkUpdates());
@@ -173,95 +161,61 @@ public class WorldStreamer : MonoBehaviour
 
     IEnumerator ProcessChunkUpdates()
     {
-        Profiler.BeginSample("CalculateNeededChunks");
         CalculateNeededChunks();
-        Profiler.EndSample();
-
-        Profiler.BeginSample("MarkChunksForUnload");
-        MarkChunksForUnload();
-        Profiler.EndSample();
-
-        Profiler.BeginSample("LoadNewChunks");
-        yield return StartCoroutine(LoadQueuedChunks());
-        Profiler.EndSample();
+        UnloadUnneededChunks();
+        yield return StartCoroutine(LoadNeededChunks());
     }
 
     void CalculateNeededChunks()
     {
         neededChunks.Clear();
-        chunkLoadQueue.Clear();
 
-        int squaredViewDist = viewDistance * viewDistance;
+        int centerX = currentPlayerChunk.x;
+        int centerY = currentPlayerChunk.y;
 
-        for (int x = -viewDistance; x <= viewDistance; x++)
+        // Calculate needed chunks with bounds checking
+        for (int x = centerX - viewDistance; x <= centerX + viewDistance; x++)
         {
-            for (int y = -viewDistance; y <= viewDistance; y++)
+            for (int y = centerY - viewDistance; y <= centerY + viewDistance; y++)
             {
-                // Circular view distance check
-                if (x * x + y * y > squaredViewDist)
-                    continue;
+                int dx = x - centerX;
+                int dy = y - centerY;
 
-                Vector2Int coord = currentPlayerChunk + new Vector2Int(x, y);
-                neededChunks.Add(coord);
-
-                if (!activeChunks.ContainsKey(coord) && !processingChunks.Contains(coord))
+                if (dx * dx + dy * dy <= squaredViewDist)
                 {
-                    chunkLoadQueue.Enqueue(coord);
+                    neededChunks.Add(new Vector2Int(x, y));
                 }
             }
         }
     }
 
-    void MarkChunksForUnload()
+    void UnloadUnneededChunks()
     {
-        chunksToUnload.Clear();
+        chunksToRemove.Clear();
 
         foreach (var kvp in activeChunks)
         {
             if (!neededChunks.Contains(kvp.Key))
             {
-                chunksToUnload.Add(kvp.Key);
-            }
-        }
-    }
-
-    void ProcessDelayedUnloads()
-    {
-        List<Vector2Int> chunksToRemove = new List<Vector2Int>();
-
-        foreach (var coord in chunksToUnload)
-        {
-            if (activeChunks.TryGetValue(coord, out ChunkData chunk))
-            {
-                chunk.lastUsedTime += Time.deltaTime;
-
-                if (chunk.lastUsedTime >= chunkUnloadDelay)
-                {
-                    ReturnChunkToPool(chunk);
-                    chunksToRemove.Add(coord);
-                }
+                chunksToRemove.Add(kvp.Key);
             }
         }
 
         foreach (var coord in chunksToRemove)
         {
+            ReturnChunkToPool(activeChunks[coord]);
             activeChunks.Remove(coord);
-            chunksToUnload.Remove(coord);
         }
     }
 
-    IEnumerator LoadQueuedChunks()
+    IEnumerator LoadNeededChunks()
     {
         int chunksProcessed = 0;
 
-        while (chunkLoadQueue.Count > 0 && chunksProcessed < maxChunksPerFrame)
+        foreach (var coord in neededChunks)
         {
-            Vector2Int coord = chunkLoadQueue.Dequeue();
-
-            if (!activeChunks.ContainsKey(coord) && !processingChunks.Contains(coord))
+            if (!activeChunks.ContainsKey(coord))
             {
-                processingChunks.Add(coord);
-
                 if (useAsyncLoading)
                 {
                     StartCoroutine(LoadChunkAsync(coord));
@@ -275,31 +229,36 @@ public class WorldStreamer : MonoBehaviour
                 chunksLoading++;
 
                 if (chunksProcessed >= maxChunksPerFrame)
+                {
                     yield return null;
+                    chunksProcessed = 0;
+                }
             }
         }
     }
 
     IEnumerator LoadChunkAsync(Vector2Int coord)
     {
-        yield return null; // Wait one frame to spread load
+        yield return null;
 
         ChunkData chunk = GetChunkFromPool();
-        SetupChunk(chunk, coord);
-        activeChunks.Add(coord, chunk);
-
-        processingChunks.Remove(coord);
-        chunksLoading--;
+        if (chunk != null)
+        {
+            SetupChunk(chunk, coord);
+            activeChunks.Add(coord, chunk);
+            chunksLoading--;
+        }
     }
 
     void LoadChunkImmediate(Vector2Int coord)
     {
         ChunkData chunk = GetChunkFromPool();
-        SetupChunk(chunk, coord);
-        activeChunks.Add(coord, chunk);
-
-        processingChunks.Remove(coord);
-        chunksLoading--;
+        if (chunk != null)
+        {
+            SetupChunk(chunk, coord);
+            activeChunks.Add(coord, chunk);
+            chunksLoading--;
+        }
     }
 
     void PreWarmChunkPool(int count)
@@ -307,8 +266,11 @@ public class WorldStreamer : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             ChunkData chunk = CreateNewChunk();
-            chunk.gameObject.SetActive(false);
-            chunkPool.Enqueue(chunk);
+            if (chunk != null)
+            {
+                chunk.gameObject.SetActive(false);
+                chunkPool.Enqueue(chunk);
+            }
         }
     }
 
@@ -317,62 +279,80 @@ public class WorldStreamer : MonoBehaviour
         if (chunkPool.Count > 0)
         {
             ChunkData chunk = chunkPool.Dequeue();
-            chunk.gameObject.SetActive(true);
-            chunk.lastUsedTime = 0f;
-            return chunk;
+            if (chunk != null && chunk.gameObject != null)
+            {
+                chunk.gameObject.SetActive(true);
+                chunk.isActive = true;
+                return chunk;
+            }
         }
 
+        // Create new chunk if pool is empty
         return CreateNewChunk();
     }
 
     void ReturnChunkToPool(ChunkData chunk)
     {
+        if (chunk == null || chunk.gameObject == null) return;
+
         chunk.gameObject.SetActive(false);
-        chunk.lastUsedTime = 0f;
+        chunk.isActive = false;
         chunkPool.Enqueue(chunk);
     }
 
     ChunkData CreateNewChunk()
     {
-        GameObject chunkObj = new GameObject("Chunk");
-        chunkObj.transform.SetParent(transform);
-        chunkObj.layer = gameObject.layer;
-
-        MeshFilter meshFilter = chunkObj.AddComponent<MeshFilter>();
-        MeshRenderer meshRenderer = chunkObj.AddComponent<MeshRenderer>();
-        MeshCollider meshCollider = chunkObj.AddComponent<MeshCollider>();
-
-        meshRenderer.material = defaultChunkMaterial;
-        meshFilter.mesh = cachedFlatMesh;
-        meshCollider.sharedMesh = cachedFlatMesh;
-
-        return new ChunkData
+        try
         {
-            gameObject = chunkObj,
-            meshFilter = meshFilter,
-            meshRenderer = meshRenderer,
-            meshCollider = meshCollider,
-            isActive = false,
-            coordinate = Vector2Int.zero,
-            lastUsedTime = 0f
-        };
+            GameObject chunkObj = new GameObject("Chunk");
+            chunkObj.transform.SetParent(transform);
+            chunkObj.layer = gameObject.layer;
+
+            MeshFilter meshFilter = chunkObj.AddComponent<MeshFilter>();
+            MeshRenderer meshRenderer = chunkObj.AddComponent<MeshRenderer>();
+
+            meshRenderer.material = defaultChunkMaterial;
+            meshFilter.sharedMesh = sharedChunkMesh; // Use shared mesh
+
+            BoxCollider boxCollider = null;
+            if (enableColliders)
+            {
+                boxCollider = chunkObj.AddComponent<BoxCollider>();
+                boxCollider.size = new Vector3(chunkSize, 0.1f, chunkSize);
+                boxCollider.center = new Vector3(chunkSize / 2f, 0, chunkSize / 2f);
+            }
+
+            return new ChunkData
+            {
+                gameObject = chunkObj,
+                coordinate = Vector2Int.zero,
+                boxCollider = boxCollider,
+                isActive = false
+            };
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to create chunk: {e.Message}");
+            return null;
+        }
     }
 
     void SetupChunk(ChunkData chunk, Vector2Int coord)
     {
+        if (chunk == null) return;
+
         chunk.coordinate = coord;
         Vector3 worldPos = new Vector3(coord.x * chunkSize, 0, coord.y * chunkSize);
         chunk.gameObject.transform.position = worldPos;
         chunk.gameObject.name = $"Chunk_{coord.x}_{coord.y}";
-        chunk.isActive = true;
     }
 
-    Mesh GenerateFlatChunkMesh()
+    Mesh CreateOptimizedChunkMesh()
     {
         Mesh mesh = new Mesh();
-        mesh.name = "ChunkMesh";
+        mesh.name = "OptimizedChunkMesh";
 
-        // Simple optimized flat plane
+        // Simple quad mesh - much more memory efficient
         Vector3[] vertices = new Vector3[4]
         {
             new Vector3(0, 0, 0),
@@ -421,38 +401,14 @@ public class WorldStreamer : MonoBehaviour
         memoryUsageMB = Profiler.GetTotalAllocatedMemoryLong() / 1048576f;
     }
 
-    // Editor visualization
-    void OnDrawGizmosSelected()
-    {
-        if (!Application.isPlaying) return;
-
-        Gizmos.color = Color.green;
-        foreach (var coord in neededChunks)
-        {
-            Vector3 center = new Vector3(coord.x * chunkSize + chunkSize / 2f, 0, coord.y * chunkSize + chunkSize / 2f);
-            Gizmos.DrawWireCube(center, new Vector3(chunkSize, 0.1f, chunkSize));
-        }
-
-        Gizmos.color = Color.red;
-        foreach (var kvp in activeChunks)
-        {
-            Vector3 center = new Vector3(kvp.Key.x * chunkSize + chunkSize / 2f, 0, kvp.Key.y * chunkSize + chunkSize / 2f);
-            Gizmos.DrawWireCube(center, new Vector3(chunkSize, 0.1f, chunkSize));
-        }
-
-        if (player != null)
-        {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawSphere(player.position, 2f);
-        }
-    }
-
     // Public methods for external control
     public void ForceUpdate()
     {
-        if (isInitialized)
+        if (isInitialized && gameObject.activeInHierarchy)
         {
-            StopCoroutine(streamingCoroutine);
+            if (streamingCoroutine != null)
+                StopCoroutine(streamingCoroutine);
+
             streamingCoroutine = StartCoroutine(ProcessChunkUpdates());
         }
     }
@@ -465,5 +421,35 @@ public class WorldStreamer : MonoBehaviour
     public Vector2Int GetCurrentChunk()
     {
         return currentPlayerChunk;
+    }
+
+    // Debug visualization
+    void OnDrawGizmosSelected()
+    {
+        if (!Application.isPlaying || !isInitialized) return;
+
+        Gizmos.color = Color.green;
+        foreach (var coord in neededChunks)
+        {
+            Vector3 center = new Vector3(coord.x * chunkSize + chunkSize / 2f, 0, coord.y * chunkSize + chunkSize / 2f);
+            Gizmos.DrawWireCube(center, new Vector3(chunkSize, 0.1f, chunkSize));
+        }
+
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, 2f);
+    }
+
+    // Memory management
+    public void ClearUnusedChunks()
+    {
+        int chunksToKeep = Mathf.Min(preWarmPoolSize, chunkPool.Count);
+        while (chunkPool.Count > chunksToKeep)
+        {
+            var chunk = chunkPool.Dequeue();
+            DestroyChunkObject(chunk);
+        }
+
+        Resources.UnloadUnusedAssets();
+        GC.Collect();
     }
 }
