@@ -1,7 +1,7 @@
-using Unity.VisualScripting;
 using UnityEngine;
+using System.Collections;
 
-public class Bullet : MonoBehaviour
+public class Bullet : MonoBehaviour, IPooledObject
 {
     public float speed = 20000f;          
     public float damage = 10f;            
@@ -30,43 +30,16 @@ public class Bullet : MonoBehaviour
     public enum Meledak { Yes, No }
 
     private Rigidbody rb;
+    private Coroutine deactivateCoroutine;
 
-    void OnTriggerEnter(Collider other)
-    {
-        // Don't hit the shooter or other bullets
-        if (other.gameObject == shooter || other.GetComponent<Bullet>() != null)
-            return;
-
-        // Apply damage to aircraft
-        AdvancedFighterJet jet = other.GetComponent<AdvancedFighterJet>();
-        if (jet != null)
-        {
-            Destroy(jet.gameObject);
-        }
-
-        // Damage player
-        if (other.CompareTag("Player"))
-        {
-            Debug.Log("Player hit by bullet!");
-        }
-
-        // Create impact effect
-        if (impactEffect != null)
-        {
-            Instantiate(impactEffect, transform.position, Quaternion.identity);
-        }
-
-        Destroy(gameObject);
-    }
-
-    void Start()
+    public void OnObjectSpawn()
     {
         rb = GetComponent<Rigidbody>();
 
         if (rb == null)
         {
             Debug.LogError("Bullet requires a Rigidbody component!");
-            Destroy(gameObject);
+            gameObject.SetActive(false);
             return;
         }
 
@@ -85,23 +58,63 @@ public class Bullet : MonoBehaviour
             else
             {
                 Debug.LogWarning("No object with tag 'Player' found.");
-                Destroy(gameObject);
+                gameObject.SetActive(false);
             }
         }
 
-        // Destroy the bullet after 1 second if no collision occurs
-        Destroy(gameObject, 1f);
+        // Deactivate the bullet after 1 second if no collision occurs
+        if (deactivateCoroutine != null)
+        {
+            StopCoroutine(deactivateCoroutine);
+        }
+        deactivateCoroutine = StartCoroutine(DeactivateAfterTime(1f));
     }
 
-  
+    private IEnumerator DeactivateAfterTime(float time)
+    {
+        yield return new WaitForSeconds(time);
+        gameObject.SetActive(false);
+    }
 
     private void SetVelocity(Vector3 direction)
     {
         rb.linearVelocity = direction * speed * Time.deltaTime;
     }
 
-    private void OnCollisionEnter(Collision collision)
+    void OnTriggerEnter(Collider other)
     {
+        // Don't hit the shooter or other bullets
+        if (other.gameObject == shooter || other.GetComponent<Bullet>() != null)
+            return;
+
+        // Apply damage to aircraft
+        AdvancedFighterJet jet = other.GetComponent<AdvancedFighterJet>();
+        if (jet != null)
+        {
+            // Assuming the jet has a TakeDamage method
+            // jet.TakeDamage(damage);
+            Destroy(jet.gameObject); // Keeping original logic for now
+        }
+
+        // Damage player
+        if (other.CompareTag("Player"))
+        {
+            Debug.Log("Player hit by bullet!");
+            // Assuming player has a TakeDamage method
+            // other.GetComponent<Player>().TakeDamage(damage);
+        }
+
+        // Create impact effect from pool
+        if (impactEffect != null)
+        {
+            PoolManager.Instance.SpawnFromPool("impact", transform.position, Quaternion.identity);
+        }
+
+        gameObject.SetActive(false);
+    }
+
+    private void OnCollisionEnter(Collision collision)
+    { 
         if (collision.gameObject.CompareTag("Bullet") && collision.gameObject != gameObject)
             return;
 
@@ -110,42 +123,41 @@ public class Bullet : MonoBehaviour
 
         if (collision.gameObject.CompareTag("Ground"))
         {
-            Instantiate(GroundIm, transform.position, Quaternion.identity);
+            if (GroundIm != null)
+                PoolManager.Instance.SpawnFromPool("groundImpact", transform.position, Quaternion.identity);
             if (GroundImSfx != null)
                 AudioSource.PlayClipAtPoint(GroundImSfx, transform.position);
         }
         else if (collision.gameObject.CompareTag("Player"))
         {
-            Instantiate(PlayerImpact, transform.position, Quaternion.identity);
+            if (PlayerImpact != null)
+                PoolManager.Instance.SpawnFromPool("playerImpact", transform.position, Quaternion.identity);
             if (PlayerImpactSfx != null)
                 AudioSource.PlayClipAtPoint(PlayerImpactSfx, transform.position);
         }
         else if (collision.gameObject.CompareTag("Enemy"))
         {
-            Instantiate(EnemyImpact, transform.position, Quaternion.identity);
+            if (EnemyImpact != null)
+                PoolManager.Instance.SpawnFromPool("enemyImpact", transform.position, Quaternion.identity);
             if (EnemyImpactSfx != null)
                 AudioSource.PlayClipAtPoint(EnemyImpactSfx, transform.position);
         }
         else
         {
-            Instantiate(MetalIm, transform.position, Quaternion.identity);
+            if (MetalIm != null)
+                PoolManager.Instance.SpawnFromPool("metalImpact", transform.position, Quaternion.identity);
             if (MetalImSfx != null)
                 AudioSource.PlayClipAtPoint(MetalImSfx, transform.position);
         }
 
-        Destroy(gameObject);
+        gameObject.SetActive(false);
     }
-
-
-
-
-
 
     private void CreateExplosion()
     {
         if (explodePrefab != null)
         {
-            Instantiate(explodePrefab, transform.position, Quaternion.identity);
+            PoolManager.Instance.SpawnFromPool("explosion", transform.position, Quaternion.identity);
         }
         else
         {
@@ -153,5 +165,3 @@ public class Bullet : MonoBehaviour
         }
     }
 }
-
-

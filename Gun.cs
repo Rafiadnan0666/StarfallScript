@@ -4,6 +4,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+// IMPORTANT: This script now uses an Object Pooling system.
+// Please ensure you have a GameObject in your scene with the PoolManager.cs script attached.
+// You will need to create pools with the following tags: "bullet", "muzzleFlash".
 public class Gun : MonoBehaviour
 {
     public enum GunType { Pistol, MachineGun, Sniper }
@@ -76,6 +79,7 @@ public class Gun : MonoBehaviour
     [SerializeField] private Transform scopePosition;
 
     private bool isReloading = false;
+    private Player playerScript;
 
     void Start()
     {
@@ -87,6 +91,7 @@ public class Gun : MonoBehaviour
         UpdateAmmoUI();
         originleft.transform.position = GunTargetLeft.transform.position;
         AimCam.gameObject.SetActive(false);
+        playerScript = FindObjectOfType<Player>();
     }
 
     void Update()
@@ -135,7 +140,6 @@ public class Gun : MonoBehaviour
                 transform.position = Vector3.Lerp(transform.position, defaultPosition, Time.deltaTime * 3);
             }
 
-            Player playerScript = FindObjectOfType<Player>();
             if (playerScript != null && playerScript.sprinting)
             {
                 Quaternion targetRotation = Quaternion.Euler(20.265f, -35.556f, 40f);
@@ -164,7 +168,6 @@ public class Gun : MonoBehaviour
 
     void HandleHeadBob()
     {
-        Player playerScript = FindObjectOfType<Player>();
         if (playerScript != null && playerScript.sprinting)
         {
             bobTimer += Time.deltaTime * headBobSpeed;
@@ -187,7 +190,8 @@ public class Gun : MonoBehaviour
         {
             currentAmmo--;
             UpdateAmmoUI();
-            Instantiate(bulletPrefab, bulletTip.position, bulletTip.rotation);
+            // Use the pool manager to spawn a bullet
+            PoolManager.Instance.SpawnFromPool("bullet", bulletTip.position, bulletTip.rotation);
 
             if (audioSource != null && fireSound != null)
             {
@@ -200,7 +204,10 @@ public class Gun : MonoBehaviour
 
             if (muzzleFlashPrefab != null)
             {
-                Instantiate(muzzleFlashPrefab, bulletTip.position, bulletTip.rotation);
+                // Use the pool manager to spawn a muzzle flash
+                GameObject muzzleFlash = PoolManager.Instance.SpawnFromPool("muzzleFlash", bulletTip.position, bulletTip.rotation);
+                // Deactivate muzzle flash after a short time
+                StartCoroutine(DeactivateAfterTime(muzzleFlash, 0.1f));
             }
 
             if (cameraShake != null)
@@ -212,6 +219,12 @@ public class Gun : MonoBehaviour
         {
             Debug.Log("Out of ammo!");
         }
+    }
+
+    IEnumerator DeactivateAfterTime(GameObject obj, float time)
+    {
+        yield return new WaitForSeconds(time);
+        obj.SetActive(false);
     }
 
     IEnumerator Reload()

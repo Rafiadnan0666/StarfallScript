@@ -84,6 +84,7 @@ public class TerrainGenerator : MonoBehaviour
     private List<Terrain> neighborTerrains = new List<Terrain>();
     private GameObject waterPlane;
     private int seed;
+    private Player _player; // Cached player reference
 
     void Start()
     {
@@ -92,10 +93,16 @@ public class TerrainGenerator : MonoBehaviour
 
         InitializeComponents();
         LoadPlanetData();
-        GenerateTerrain();
+        StartCoroutine(GenerateTerrainAsync());
+    }
+
+    public IEnumerator GenerateTerrainAsync()
+    {
+        yield return StartCoroutine(GenerateTerrainCoroutine());
         CreateWaterPlane();
         SpawnEnvironmentObjects();
         ApplyEnvironmentalEffects();
+        _player = FindObjectOfType<Player>();
         UpdateBiomeInfo();
     }
 
@@ -213,7 +220,7 @@ public class TerrainGenerator : MonoBehaviour
         windDirection = Random.insideUnitCircle.normalized;
     }
 
-    void GenerateTerrain()
+    IEnumerator GenerateTerrainCoroutine()
     {
         BiomeObjects biome = GetCurrentBiome();
 
@@ -221,7 +228,9 @@ public class TerrainGenerator : MonoBehaviour
         terrainData.size = new Vector3(width, depth, height);
         terrainData.heightmapResolution = Mathf.NextPowerOfTwo(width) + 1;
 
-        float[,] heights = GenerateHeightmap(terrainData.heightmapResolution);
+        float[,] heights = new float[terrainData.heightmapResolution, terrainData.heightmapResolution];
+        yield return StartCoroutine(GenerateHeightmapCoroutine(heights, terrainData.heightmapResolution));
+        
         terrainData.SetHeights(0, 0, heights);
 
         terrain.terrainData = terrainData;
@@ -229,6 +238,46 @@ public class TerrainGenerator : MonoBehaviour
 
         ApplyBiomeTextures(terrainData, biome);
         ApplyBiomeDetails(terrainData, biome);
+    }
+
+    IEnumerator GenerateHeightmapCoroutine(float[,] heights, int resolution)
+    {
+        pathPoints.Clear();
+
+        // Base noise with multiple octaves for natural terrain
+        for (int x = 0; x < resolution; x++)
+        {
+            for (int y = 0; y < resolution; y++)
+            {
+                float nx = x / (float)resolution * scale;
+                float ny = y / (float)resolution * scale;
+
+                // Multi-layered noise for natural terrain
+                float baseNoise = FractalNoise(nx, ny, 4) * 0.4f;
+                float detailNoise = Mathf.PerlinNoise(nx * 3f, ny * 3f) * 0.15f;
+                float fineNoise = Mathf.PerlinNoise(nx * 8f, ny * 8f) * 0.08f;
+                float ridgeNoise = GenerateRidgedNoise(nx, ny) * 0.1f;
+
+                heights[x, y] = waterLevel + baseNoise + detailNoise + fineNoise + ridgeNoise;
+            }
+            if (x % 10 == 0)
+                yield return null;
+        }
+
+        yield return StartCoroutine(AddMountainsCoroutine(heights, resolution));
+        yield return StartCoroutine(AddHillsCoroutine(heights, resolution));
+        yield return StartCoroutine(AddValleysAndRiversCoroutine(heights, resolution));
+
+        for (int i = 0; i < pathCount; i++)
+        {
+            yield return StartCoroutine(GeneratePathCoroutine(heights, resolution));
+        }
+
+        yield return StartCoroutine(ApplyErosionCoroutine(heights, resolution));
+        yield return StartCoroutine(ApplyThermalErosionCoroutine(heights, resolution, 5));
+
+        NormalizeTerrain(heights, resolution);
+        AddCliffBorder(heights, resolution);
     }
 
   
@@ -356,46 +405,7 @@ public class TerrainGenerator : MonoBehaviour
         waterController.waveSpeed = situation.waveSpeed;
     }
 
-    float[,] GenerateHeightmap(int resolution)
-    {
-        float[,] heights = new float[resolution, resolution];
-        pathPoints.Clear();
-
-        // Base noise with multiple octaves for natural terrain
-        for (int x = 0; x < resolution; x++)
-        {
-            for (int y = 0; y < resolution; y++)
-            {
-                float nx = x / (float)resolution * scale;
-                float ny = y / (float)resolution * scale;
-
-                // Multi-layered noise for natural terrain
-                float baseNoise = FractalNoise(nx, ny, 4) * 0.4f;
-                float detailNoise = Mathf.PerlinNoise(nx * 3f, ny * 3f) * 0.15f;
-                float fineNoise = Mathf.PerlinNoise(nx * 8f, ny * 8f) * 0.08f;
-                float ridgeNoise = GenerateRidgedNoise(nx, ny) * 0.1f;
-
-                heights[x, y] = waterLevel + baseNoise + detailNoise + fineNoise + ridgeNoise;
-            }
-        }
-
-        AddMountains(heights, resolution);
-        AddHills(heights, resolution);
-        AddValleysAndRivers(heights, resolution);
-
-        for (int i = 0; i < pathCount; i++)
-        {
-            GeneratePath(heights, resolution);
-        }
-
-        heights = ApplyErosion(heights, resolution);
-        heights = ApplyThermalErosion(heights, resolution, 5);
-
-        NormalizeTerrain(heights, resolution);
-        AddCliffBorder(heights, resolution);
-
-        return heights;
-    }
+    
 
     float FractalNoise(float x, float y, int octaves)
     {
@@ -418,7 +428,7 @@ public class TerrainGenerator : MonoBehaviour
         return 1f - Mathf.Abs(Mathf.PerlinNoise(x, y) * 2f - 1f);
     }
 
-    void AddMountains(float[,] heights, int resolution)
+    IEnumerator AddMountainsCoroutine(float[,] heights, int resolution)
     {
         for (int i = 0; i < mountainCount; i++)
         {
@@ -444,6 +454,8 @@ public class TerrainGenerator : MonoBehaviour
 
                     heights[x, y] += mountainEffect * (baseShape * 0.5f + ridgeNoise * 0.3f + detailNoise * 0.15f + crackNoise * 0.05f);
                 }
+                if (x % 100 == 0)
+                    yield return null;
             }
         }
     }
@@ -454,7 +466,7 @@ public class TerrainGenerator : MonoBehaviour
         return Mathf.Pow(noise, 3f);
     }
 
-    void AddHills(float[,] heights, int resolution)
+    IEnumerator AddHillsCoroutine(float[,] heights, int resolution)
     {
         float scaleVariation = Random.Range(0.8f, 1.2f);
 
@@ -477,10 +489,12 @@ public class TerrainGenerator : MonoBehaviour
 
                 heights[x, y] += hillHeight * hillEffect;
             }
+            if (x % 100 == 0)
+                yield return null;
         }
     }
 
-    void AddValleysAndRivers(float[,] heights, int resolution)
+    IEnumerator AddValleysAndRiversCoroutine(float[,] heights, int resolution)
     {
         for (int i = 0; i < valleyCount; i++)
         {
@@ -499,16 +513,18 @@ public class TerrainGenerator : MonoBehaviour
 
                     heights[x, y] -= Mathf.Abs(valleyEffect);
                 }
+                if (x % 100 == 0)
+                    yield return null;
             }
         }
 
         for (int i = 0; i < riverCount; i++)
         {
-            GenerateRiver(heights, resolution);
+            yield return StartCoroutine(GenerateRiverCoroutine(heights, resolution));
         }
     }
 
-    void GenerateRiver(float[,] heights, int resolution)
+    IEnumerator GenerateRiverCoroutine(float[,] heights, int resolution)
     {
         Vector2 start = new Vector2(
             Random.Range(0.1f, 0.9f) * resolution,
@@ -580,6 +596,8 @@ public class TerrainGenerator : MonoBehaviour
                     }
                 }
             }
+            if (i % 10 == 0)
+                yield return null;
         }
     }
 
@@ -855,7 +873,7 @@ public class TerrainGenerator : MonoBehaviour
         spawnedObjects.Add(windZoneObj);
     }
 
-    float[,] ApplyErosion(float[,] heights, int resolution)
+    IEnumerator ApplyErosionCoroutine(float[,] heights, int resolution)
     {
         float[,] eroded = new float[resolution, resolution];
         System.Array.Copy(heights, eroded, heights.Length);
@@ -897,12 +915,14 @@ public class TerrainGenerator : MonoBehaviour
 
                 eroded[x, y] = Mathf.Lerp(heights[x, y], avg, erosionStrength) + detail * 0.1f;
             }
+            if (x % 100 == 0)
+                yield return null;
         }
 
-        return eroded;
+        //return eroded;
     }
 
-    float[,] ApplyThermalErosion(float[,] heights, int resolution, int iterations)
+    IEnumerator ApplyThermalErosionCoroutine(float[,] heights, int resolution, int iterations)
     {
         float[,] result = new float[resolution, resolution];
         System.Array.Copy(heights, result, heights.Length);
@@ -949,9 +969,10 @@ public class TerrainGenerator : MonoBehaviour
                     }
                 }
             }
+            yield return null;
         }
 
-        return result;
+        //return result;
     }
 
     void SpawnObjectGroup(GameObject[] prefabs, float density)
@@ -1114,7 +1135,10 @@ public class TerrainGenerator : MonoBehaviour
 
     void UpdateBiomeInfo()
     {
-        biomeInfoText = FindAnyObjectByType<Player>().info;
+        if (_player != null)
+        {
+            biomeInfoText = _player.info;
+        }
         if (biomeInfoText != null)
         {
             biomeInfoText.text = $"<b>Biome:</b> {situation.biome}\n" +
@@ -1185,7 +1209,7 @@ public class TerrainGenerator : MonoBehaviour
         }
     }
 
-    void GeneratePath(float[,] heights, int resolution)
+    IEnumerator GeneratePathCoroutine(float[,] heights, int resolution)
     {
         Vector3 size = terrain.terrainData.size;
 
@@ -1244,6 +1268,8 @@ public class TerrainGenerator : MonoBehaviour
                 Vector3 mid = new Vector3(current.x, 0, current.y);
                 pathPoints.Add(mid);
             }
+            if (i % 10 == 0)
+                yield return null;
         }
     }
 

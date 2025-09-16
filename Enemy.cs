@@ -55,12 +55,17 @@ public class Enemy : MonoBehaviour
     private Quaternion[] defaultLegRotations;
     private Vector3 currentVelocity;
     private Vector3 lastPosition;
+    private Player playerMovement;
 
     void Start()
     {
         audioSource = GetComponent<AudioSource>();
         rb = GetComponent<Rigidbody>();
         player = GameObject.FindGameObjectWithTag("Player")?.transform;
+        if (player != null)
+        {
+            playerMovement = player.GetComponent<Player>();
+        }
         defaultLegPositions = new Vector3[legs.Length];
         defaultLegRotations = new Quaternion[legs.Length];
         for (int i = 0; i < legs.Length; i++)
@@ -145,7 +150,6 @@ public class Enemy : MonoBehaviour
         }
         if (distanceToPlayer <= hearingRange)
         {
-            Player playerMovement = player.GetComponent<Player>();
             if (playerMovement != null && playerMovement.speed > soundThreshold)
             {
                 playerDetected = true;
@@ -297,7 +301,7 @@ public class Enemy : MonoBehaviour
     {
         if (shootPoint == null || bulletPrefab == null) return;
 
-        GameObject bullet = Instantiate(bulletPrefab, shootPoint.position, shootPoint.rotation);
+        GameObject bullet = PoolManager.Instance.SpawnFromPool("enemyBullet", shootPoint.position, shootPoint.rotation);
         Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
         if (bulletRb != null)
         {

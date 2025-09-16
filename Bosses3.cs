@@ -38,6 +38,7 @@ public class Bosses3 : MonoBehaviour
     private float nextUltimateTime;
     private float angleOffset;
     private AudioSource audioSource;
+    private Rigidbody playerRb;
     [SerializeField] private GameObject[] circlingProjectiles;
 
     private void Start()
@@ -46,11 +47,12 @@ public class Bosses3 : MonoBehaviour
         audioSource = GetComponent<AudioSource>();
 
         player = FindAnyObjectByType<Player>().playerCam;
+        playerRb = player.GetComponent<Rigidbody>();
         circlingProjectiles = new GameObject[circlingProjectileCount];
         for (int i = 0; i < circlingProjectileCount; i++)
         {
-            circlingProjectiles[i] = Instantiate(
-                circlingProjectilePrefab,
+            circlingProjectiles[i] = PoolManager.Instance.SpawnFromPool(
+                "circlingProjectile",
                 transform.position,
                 Quaternion.identity
             );
@@ -153,11 +155,11 @@ public class Bosses3 : MonoBehaviour
         {
             if (tip != null && projectilePrefab != null)
             {
-                GameObject bullet = Instantiate(projectilePrefab, tip.position, tip.rotation);
+                GameObject bullet = PoolManager.Instance.SpawnFromPool("bossProjectile", tip.position, tip.rotation);
                 Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
                 if (bulletRb != null)
                 {
-                    Vector3 targetPosition = PredictPlayerPosition(player.position, player.GetComponent<Rigidbody>().linearVelocity, tip.position, projectileSpeed);
+                    Vector3 targetPosition = PredictPlayerPosition(player.position, playerRb.linearVelocity, tip.position, projectileSpeed);
                     Vector3 direction = (targetPosition - tip.position).normalized;
                     bulletRb.linearVelocity = direction * projectileSpeed;
                 }
@@ -173,10 +175,10 @@ public class Bosses3 : MonoBehaviour
         // Create dramatic effect with delay
         yield return new WaitForSeconds(2f);
 
-        GameObject boulder = Instantiate(boulderPrefab, tip.position + Vector3.up * 2, tip.rotation);
+        GameObject boulder = PoolManager.Instance.SpawnFromPool("boulder", tip.position + Vector3.up * 2, tip.rotation);
         Rigidbody rb = boulder.GetComponent<Rigidbody>();
 
-        Vector3 targetPosition = PredictPlayerPosition(player.position, player.GetComponent<Rigidbody>().linearVelocity, tip.position, projectileSpeed);
+        Vector3 targetPosition = PredictPlayerPosition(player.position, playerRb.linearVelocity, tip.position, projectileSpeed);
         Vector3 direction = (targetPosition - tip.position).normalized;
 
         rb.linearVelocity = direction * projectileSpeed;
