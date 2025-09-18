@@ -106,7 +106,6 @@ public class AdvancedFighterJet : MonoBehaviour
 
     // Internal state
     private float currentSpeed;
-    public float heath = 100f;
     private bool afterburnerActive = false;
     private float lastGunFireTime = 0f;
     private float lastGroundAttackTime = 0f;
@@ -157,6 +156,9 @@ public class AdvancedFighterJet : MonoBehaviour
     public System.Action<AdvancedFighterJet> OnWingmanAdded;
 
     private static List<AdvancedFighterJet> allJets = new List<AdvancedFighterJet>();
+
+    // Pool manager reference
+    private PoolManager poolManager;
 
     void OnEnable()
     {
@@ -218,6 +220,15 @@ public class AdvancedFighterJet : MonoBehaviour
 
         // Generate ground targets
         GenerateGroundTargets();
+
+        // Get pool manager reference
+        poolManager = FindObjectOfType<PoolManager>();
+        if (poolManager == null)
+        {
+            Debug.LogWarning("PoolManager not found in scene. Creating a temporary one.");
+            GameObject poolManagerObj = new GameObject("PoolManager");
+            poolManager = poolManagerObj.AddComponent<PoolManager>();
+        }
     }
 
     void Start()
@@ -250,9 +261,9 @@ public class AdvancedFighterJet : MonoBehaviour
         if (collision.gameObject.CompareTag("Bullet") || collision.gameObject.CompareTag("BlastBullet"))
         {
             float damage = collision.gameObject.CompareTag("BlastBullet") ? blastDamage : gunDamage;
-            heath -= damage;
+            health -= damage;
 
-            if (heath <= 0f)
+            if (health <= 0f)
             {
                 Explode();
                 return;
@@ -514,7 +525,7 @@ public class AdvancedFighterJet : MonoBehaviour
 
     private void AdjustAltitudeToTerrain()
     {
-        // Get current terrain height (deforming terrain supported)
+        // Get current terrain height
         float terrainHeight = GetTerrainHeightAtPosition(transform.position);
         float minAllowedY = terrainHeight + minTerrainAltitude;
         float idealAllowedY = terrainHeight + idealTerrainAltitude;
@@ -545,7 +556,6 @@ public class AdvancedFighterJet : MonoBehaviour
         euler.x = Mathf.LerpAngle(euler.x, requiredPitch, Time.fixedDeltaTime * stability);
         transform.rotation = Quaternion.Euler(euler);
     }
-
 
     private float GetTerrainHeightAtPosition(Vector3 position)
     {
@@ -638,7 +648,6 @@ public class AdvancedFighterJet : MonoBehaviour
         currentSpeed = Mathf.Lerp(currentSpeed, cruiseSpeed, Time.fixedDeltaTime * 0.5f);
     }
 
-
     private void EngageBehavior()
     {
         if (currentTarget != null)
@@ -689,7 +698,12 @@ public class AdvancedFighterJet : MonoBehaviour
             else
             {
                 FlyToPosition(attackPosition);
-                FireGuns();
+
+                // Only fire guns if conditions are met
+                if (IsTargetInFiringArc() && isTargetLocked && Time.time > gunCooldownEnd)
+                {
+                    FireGuns();
+                }
             }
 
             currentSpeed = Mathf.Lerp(currentSpeed, cruiseSpeed * 0.9f, Time.fixedDeltaTime * 0.5f);
@@ -722,7 +736,12 @@ public class AdvancedFighterJet : MonoBehaviour
             }
 
             FlyToPosition(closestTarget + Vector3.up * 200f); // Fly above target
-            FireGuns();
+
+            // Only fire guns if conditions are met
+            if (Time.time > gunCooldownEnd)
+            {
+                FireGuns();
+            }
 
             // Dive when close to target
             float dist = Mathf.Sqrt(closestDistSqr);
@@ -844,8 +863,8 @@ public class AdvancedFighterJet : MonoBehaviour
     #region Combat
     private void FireGuns()
     {
-        // Null checks for currentTarget, bulletPrefab, gunTransform
-        if (currentTarget == null || bulletPrefab == null || gunTransform == null)
+        // Null checks for all required components
+        if (currentTarget == null || bulletPrefab == null || gunTransform == null || poolManager == null)
             return;
 
         if (Time.time < lastGunFireTime + 1f / gunFireRate || burstCount >= gunBurstCount)
@@ -859,7 +878,8 @@ public class AdvancedFighterJet : MonoBehaviour
 
         Vector3 fireDirection = (currentTarget.transform.position - gunTransform.position).normalized + spread;
 
-        GameObject bullet = PoolManager.Instance.SpawnFromPool("bullet", gunTransform.position, Quaternion.LookRotation(fireDirection));
+        // Use pool manager to spawn bullets
+        GameObject bullet = poolManager.SpawnFromPool("bullet", gunTransform.position, Quaternion.LookRotation(fireDirection));
         if (bullet != null)
         {
             Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
@@ -870,10 +890,22 @@ public class AdvancedFighterJet : MonoBehaviour
 
             bullet.tag = team == Team.Red ? "RedBullet" : "BlueBullet";
         }
+        else
+        {
+            // Fallback to instantiation if pool manager fails
+            bullet = Instantiate(bulletPrefab, gunTransform.position, Quaternion.LookRotation(fireDirection));
+            Rigidbody bulletRb = bullet.GetComponent<Rigidbody>();
+            if (bulletRb != null)
+            {
+                bulletRb.linearVelocity = fireDirection * currentSpeed * 1.5f;
+            }
+            bullet.tag = team == Team.Red ? "RedBullet" : "BlueBullet";
+        }
 
+        // Handle muzzle flash
         if (gunMuzzleFlash != null && gunTransform != null)
         {
-            GameObject flash = PoolManager.Instance.SpawnFromPool("muzzleFlash", gunTransform.position, gunTransform.rotation);
+            GameObject flash = poolManager.SpawnFromPool("muzzleFlash", gunTransform.position, gunTransform.rotation);
             if (flash != null)
             {
                 flash.transform.parent = gunTransform;
@@ -881,6 +913,7 @@ public class AdvancedFighterJet : MonoBehaviour
             }
         }
 
+        // Play gun sound
         if (gunSound != null)
         {
             AudioSource.PlayClipAtPoint(gunSound, gunTransform.position, 0.5f);
@@ -900,17 +933,41 @@ public class AdvancedFighterJet : MonoBehaviour
 
     private void PerformGroundStrike()
     {
-        if (groundTargets.Count > 0 && blastBulletPrefab != null)
+        if (groundTargets.Count > 0 && blastBulletPrefab != null && poolManager != null)
         {
             Vector3 target = groundTargets[0];
 
             // Launch blast bullet from pool
-            GameObject blastBullet = PoolManager.Instance.SpawnFromPool("blastBullet", transform.position, Quaternion.identity);
-            BlastProjectile projectile = blastBullet.GetComponent<BlastProjectile>();
-
-            if (projectile != null)
+            GameObject blastBullet = poolManager.SpawnFromPool("blastBullet", transform.position, Quaternion.identity);
+            if (blastBullet != null)
             {
-                projectile.Initialize(target, blastDamage, blastRadius, team);
+                BlastProjectile projectile = blastBullet.GetComponent<BlastProjectile>();
+                if (projectile != null)
+                {
+                    projectile.Initialize(target, blastDamage, blastRadius, team);
+                }
+                else
+                {
+                    // Fallback if BlastProjectile component is missing
+                    blastBullet.transform.position = transform.position;
+                    blastBullet.transform.LookAt(target);
+                    Rigidbody rb = blastBullet.GetComponent<Rigidbody>();
+                    if (rb != null)
+                    {
+                        rb.linearVelocity = (target - transform.position).normalized * currentSpeed;
+                    }
+                }
+            }
+            else
+            {
+                // Fallback to instantiation if pool manager fails
+                blastBullet = Instantiate(blastBulletPrefab, transform.position, Quaternion.identity);
+                blastBullet.transform.LookAt(target);
+                Rigidbody rb = blastBullet.GetComponent<Rigidbody>();
+                if (rb != null)
+                {
+                    rb.linearVelocity = (target - transform.position).normalized * currentSpeed;
+                }
             }
 
             // Play missile sound
@@ -985,10 +1042,19 @@ public class AdvancedFighterJet : MonoBehaviour
 
     private void CreateExplosion(Vector3 position)
     {
-        if (explosionEffect != null)
+        if (explosionEffect != null && poolManager != null)
         {
-            GameObject explosion = PoolManager.Instance.SpawnFromPool("explosion", position, Quaternion.identity);
-            StartCoroutine(DeactivateAfterTime(explosion, 3f));
+            GameObject explosion = poolManager.SpawnFromPool("explosion", position, Quaternion.identity);
+            if (explosion != null)
+            {
+                StartCoroutine(DeactivateAfterTime(explosion, 3f));
+            }
+            else
+            {
+                // Fallback to instantiation
+                explosion = Instantiate(explosionEffect, position, Quaternion.identity);
+                Destroy(explosion, 3f);
+            }
         }
 
         if (explosionSound != null)
@@ -1003,7 +1069,7 @@ public class AdvancedFighterJet : MonoBehaviour
             AdvancedFighterJet jet = hit.GetComponent<AdvancedFighterJet>();
             if (jet != null && jet.team != team)
             {
-                jet.heath -= blastDamage * (1f - Vector3.Distance(position, hit.transform.position) / blastRadius);
+                jet.health -= blastDamage * (1f - Vector3.Distance(position, hit.transform.position) / blastRadius);
             }
         }
     }
@@ -1028,7 +1094,7 @@ public class AdvancedFighterJet : MonoBehaviour
             // Use the static list of all jets
             foreach (AdvancedFighterJet jet in allJets)
             {
-                if (jet == this || jet.team == team) continue;
+                if (jet == null || jet == this || jet.team == team) continue;
 
                 float distance = Vector3.Distance(transform.position, jet.transform.position);
                 if (distance > radarRange) continue;
@@ -1072,6 +1138,8 @@ public class AdvancedFighterJet : MonoBehaviour
                 AdvancedFighterJet closestTarget = null;
                 foreach (AdvancedFighterJet target in detectedTargets)
                 {
+                    if (target == null) continue;
+
                     float distSqr = (transform.position - target.transform.position).sqrMagnitude;
                     if (distSqr < closestDistSqr)
                     {
@@ -1124,8 +1192,6 @@ public class AdvancedFighterJet : MonoBehaviour
             }
         }
     }
-
-
 
     private void UpdateAnimations()
     {
@@ -1295,4 +1361,3 @@ public class AdvancedFighterJet : MonoBehaviour
     }
     #endregion
 }
-
