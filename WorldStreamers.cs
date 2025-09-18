@@ -14,20 +14,23 @@ using System.Runtime.CompilerServices;
 public class AdvancedWorldStreamer : MonoBehaviour
 {
     [Header("Streaming Settings")]
-    [Range(1, 12)] public int viewDistance = 3;
+    [Range(1, 20)] public int viewDistance = 8;
     public int chunkSize = 100;
-    [Range(1, 10)] public int maxChunksPerFrame = 3;
+    [Range(1, 15)] public int maxChunksPerFrame = 5;
     [Range(0.01f, 0.5f)] public float streamingUpdateInterval = 0.1f;
 
     [Header("Memory Management")]
-    public int maxMemoryMB = 800;
-    public int preWarmPoolSize = 15;
+    public int maxMemoryMB = 1024;
+    public int preWarmPoolSize = 20;
     public bool enableMemoryCleanup = true;
+    [Range(10, 300)] public int memoryCleanupInterval = 60;
 
     [Header("Performance Settings")]
     public bool useJobSystem = true;
     public bool useGPUInstancing = true;
     public bool useBurstCompilation = true;
+    public bool useLODCrossFade = true;
+    public bool enableOcclusionCulling = true;
     public LODLevel[] lodLevels;
 
     [Header("Performance Monitoring")]
@@ -37,51 +40,74 @@ public class AdvancedWorldStreamer : MonoBehaviour
     [SerializeField] private int chunksLoading;
     [SerializeField] private int currentLODLevel;
     [SerializeField] private float lastUpdateTimeMs;
+    [SerializeField] private int drawCallCount;
+    [SerializeField] private int triangleCount;
+    [SerializeField] private int vertexCount;
 
     [System.Serializable]
     public struct LODLevel
     {
-        public int distanceThreshold;
-        public int meshResolution;
+        [Range(1, 20)] public int distanceThreshold;
+        [Range(4, 256)] public int meshResolution;
         public bool generateColliders;
+        public float cullRatio;
     }
 
-    private struct ChunkKey : IEquatable<ChunkKey>
+    private struct ChunkKey : IEquatable<ChunkKey>, IComparable<ChunkKey>
     {
         public int x;
-        public int y;
+        public int z;
 
-        public ChunkKey(int x, int y)
+        public ChunkKey(int x, int z)
         {
             this.x = x;
-            this.y = y;
+            this.z = z;
         }
 
-        public bool Equals(ChunkKey other) => x == other.x && y == other.y;
-        public override int GetHashCode() => HashCode.Combine(x, y);
+        public bool Equals(ChunkKey other) => x == other.x && z == other.z;
+        public override int GetHashCode() => (x << 16) ^ z;
+        public int CompareTo(ChunkKey other)
+        {
+            int xCompare = x.CompareTo(other.x);
+            return xCompare != 0 ? xCompare : z.CompareTo(other.z);
+        }
+
+        public float SqrDistanceTo(ChunkKey other)
+        {
+            int dx = x - other.x;
+            int dz = z - other.z;
+            return dx * dx + dz * dz;
+        }
     }
 
-    private class ChunkData : IDisposable
+    private class ChunkData : IDisposable, IComparable<ChunkData>
     {
         public GameObject gameObject;
         public ChunkKey coordinate;
         public MeshFilter meshFilter;
         public MeshRenderer meshRenderer;
         public MeshCollider meshCollider;
+        public LODGroup lodGroup;
         public int lodLevel;
         public bool isActive;
         public NativeArray<Vector3> vertices;
         public NativeArray<int> triangles;
         public Mesh generatedMesh;
         public bool isJobScheduled;
+        public float lastUsedTime;
+        public float priority;
+        public int triangleCount;
+        public int vertexCount;
 
         public void Dispose()
         {
             if (vertices.IsCreated) vertices.Dispose();
             if (triangles.IsCreated) triangles.Dispose();
+        }
 
-            // Don't destroy the mesh here as it might be used by renderer/collider
-            // Cleanup will happen in DestroyChunkObject
+        public int CompareTo(ChunkData other)
+        {
+            return other.priority.CompareTo(priority);
         }
     }
 
@@ -103,48 +129,59 @@ public class AdvancedWorldStreamer : MonoBehaviour
     private List<ChunkKey> chunksToRemove;
     private JobHandle meshGenerationJobHandle;
     private List<ChunkData> chunksWithPendingJobs;
+    private List<ChunkData> priorityLoadQueue;
+    private Plane[] cameraFrustumPlanes;
 
     // Memory monitoring
     private float lastMemoryCleanupTime;
-    private const float MEMORY_CLEANUP_INTERVAL = 30f;
-    private const int MAX_CONCURRENT_JOBS = 8;
+    private int frameCounter;
+    private const int FRAMES_BETWEEN_MEMORY_CHECK = 60;
 
     // Static optimization
     private static readonly Vector3 ChunkOffset = new Vector3(0.5f, 0, 0.5f);
     private static readonly Quaternion IdentityRotation = Quaternion.identity;
+    private static Camera mainCamera;
 
-    [BurstCompile]
-    struct MeshGenerationJob : IJob
+    [BurstCompile(FloatPrecision.High, FloatMode.Fast)]
+    private struct MeshGenerationJob : IJob
     {
         public NativeArray<Vector3> vertices;
         public NativeArray<int> triangles;
         public int chunkSize;
         public int resolution;
         public ChunkKey coordinate;
+        public float heightMultiplier;
+        public float noiseScale;
+        public Vector2 noiseOffset;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void Execute()
         {
-            GenerateFlatMeshData();
+            GenerateTerrainMeshData();
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private void GenerateFlatMeshData()
+        private void GenerateTerrainMeshData()
         {
             int vertexCount = (resolution + 1) * (resolution + 1);
             float step = (float)chunkSize / resolution;
 
-            // Generate vertices
             for (int i = 0; i <= resolution; i++)
             {
                 for (int j = 0; j <= resolution; j++)
                 {
                     int index = i * (resolution + 1) + j;
-                    vertices[index] = new Vector3(j * step, 0, i * step);
+                    float x = j * step;
+                    float z = i * step;
+
+                    float worldX = (coordinate.x * chunkSize + x) * noiseScale + noiseOffset.x;
+                    float worldZ = (coordinate.z * chunkSize + z) * noiseScale + noiseOffset.y;
+                    float height = Mathf.PerlinNoise(worldX, worldZ) * heightMultiplier;
+
+                    vertices[index] = new Vector3(x, height, z);
                 }
             }
 
-            // Generate triangles
             int triIndex = 0;
             for (int i = 0; i < resolution; i++)
             {
@@ -171,6 +208,7 @@ public class AdvancedWorldStreamer : MonoBehaviour
     {
         InitializeLODLevels();
         InitializeCollections();
+        mainCamera = Camera.main;
     }
 
     void InitializeLODLevels()
@@ -179,25 +217,38 @@ public class AdvancedWorldStreamer : MonoBehaviour
         {
             lodLevels = new LODLevel[]
             {
-                new LODLevel { distanceThreshold = 1, meshResolution = 64, generateColliders = true },
-                new LODLevel { distanceThreshold = 3, meshResolution = 32, generateColliders = false },
-                new LODLevel { distanceThreshold = 6, meshResolution = 16, generateColliders = false }
+                new LODLevel { distanceThreshold = 2, meshResolution = 128, generateColliders = true, cullRatio = 0.1f },
+                new LODLevel { distanceThreshold = 4, meshResolution = 64, generateColliders = false, cullRatio = 0.2f },
+                new LODLevel { distanceThreshold = 8, meshResolution = 32, generateColliders = false, cullRatio = 0.3f },
+                new LODLevel { distanceThreshold = 12, meshResolution = 16, generateColliders = false, cullRatio = 0.4f }
             };
         }
     }
 
     void InitializeCollections()
     {
-        activeChunks = new Dictionary<ChunkKey, ChunkData>(256);
+        activeChunks = new Dictionary<ChunkKey, ChunkData>(512);
         neededChunks = new HashSet<ChunkKey>();
         chunkPool = new Queue<ChunkData>();
-        chunksToRemove = new List<ChunkKey>(32);
-        chunksWithPendingJobs = new List<ChunkData>(MAX_CONCURRENT_JOBS);
+        chunksToRemove = new List<ChunkKey>(64);
+        chunksWithPendingJobs = new List<ChunkData>(16);
+        priorityLoadQueue = new List<ChunkData>(32);
+
+        if (mainCamera != null)
+        {
+            cameraFrustumPlanes = new Plane[6];
+        }
     }
 
     void Start()
     {
         positionProvider = GetComponent<PlayerPositionProvider>();
+        if (positionProvider == null)
+        {
+            Debug.LogError("PlayerPositionProvider component is missing!");
+            return;
+        }
+
         Initialize();
     }
 
@@ -227,32 +278,51 @@ public class AdvancedWorldStreamer : MonoBehaviour
         Cleanup();
     }
 
-    void Cleanup()
+    void OnDisable()
     {
         if (streamingCoroutine != null)
             StopCoroutine(streamingCoroutine);
+    }
 
-        // Complete any pending jobs
-        if (meshGenerationJobHandle.IsCompleted)
+    void OnEnable()
+    {
+        if (isInitialized && streamingCoroutine == null)
+            streamingCoroutine = StartCoroutine(StreamingUpdate());
+    }
+
+    void Cleanup()
+    {
+        if (streamingCoroutine != null)
+        {
+            StopCoroutine(streamingCoroutine);
+            streamingCoroutine = null;
+        }
+
+        if (useJobSystem && !meshGenerationJobHandle.IsCompleted)
+        {
             meshGenerationJobHandle.Complete();
+            ProcessCompletedJobs();
+        }
 
-        // Dispose all chunks
         foreach (var chunk in activeChunks.Values)
         {
-            DestroyChunkObject(chunk);
+            if (chunk != null)
+                DestroyChunkObject(chunk);
         }
         activeChunks.Clear();
 
         foreach (var chunk in chunkPool)
         {
-            DestroyChunkObject(chunk);
+            if (chunk != null)
+                DestroyChunkObject(chunk);
         }
         chunkPool.Clear();
 
         neededChunks.Clear();
         chunksToRemove.Clear();
+        chunksWithPendingJobs.Clear();
+        priorityLoadQueue.Clear();
 
-        // Cleanup shared resources
         CleanupSharedResources();
 
         Resources.UnloadUnusedAssets();
@@ -265,7 +335,8 @@ public class AdvancedWorldStreamer : MonoBehaviour
         {
             foreach (var mat in lodMaterials)
             {
-                if (mat != null) DestroyImmediate(mat);
+                if (mat != null)
+                    DestroyImmediate(mat);
             }
             lodMaterials = null;
         }
@@ -285,6 +356,12 @@ public class AdvancedWorldStreamer : MonoBehaviour
             ProcessCompletedJobs();
         }
 
+        if (enableOcclusionCulling && mainCamera != null && frameCounter % 10 == 0)
+        {
+            GeometryUtility.CalculateFrustumPlanes(mainCamera, cameraFrustumPlanes);
+        }
+
+        frameCounter++;
         lastUpdateTimeMs = (Time.realtimeSinceStartup - startTime) * 1000f;
     }
 
@@ -314,7 +391,15 @@ public class AdvancedWorldStreamer : MonoBehaviour
         {
             yield return streamingWait;
 
-            ChunkKey playerChunk = WorldToChunk(positionProvider.GetPosition());
+            if (positionProvider == null)
+            {
+                Debug.LogError("Position provider is null!");
+                yield break;
+            }
+
+            Vector3 playerPos = positionProvider.GetPosition();
+            ChunkKey playerChunk = WorldToChunk(playerPos);
+
             if (!playerChunk.Equals(currentPlayerChunk) || activeChunks.Count == 0)
             {
                 currentPlayerChunk = playerChunk;
@@ -333,33 +418,50 @@ public class AdvancedWorldStreamer : MonoBehaviour
     void CalculateNeededChunks()
     {
         neededChunks.Clear();
+        priorityLoadQueue.Clear();
+
         int centerX = currentPlayerChunk.x;
-        int centerY = currentPlayerChunk.y;
+        int centerZ = currentPlayerChunk.z;
 
         for (int x = centerX - viewDistance; x <= centerX + viewDistance; x++)
         {
-            for (int y = centerY - viewDistance; y <= centerY + viewDistance; y++)
+            for (int z = centerZ - viewDistance; z <= centerZ + viewDistance; z++)
             {
-                int dx = x - centerX;
-                int dy = y - centerY;
+                ChunkKey chunkKey = new ChunkKey(x, z);
+                float sqrDist = chunkKey.SqrDistanceTo(currentPlayerChunk);
 
-                if (dx * dx + dy * dy <= squaredViewDist)
+                if (sqrDist <= squaredViewDist)
                 {
-                    neededChunks.Add(new ChunkKey(x, y));
+                    neededChunks.Add(chunkKey);
+
+                    float priority = 1f / (1f + Mathf.Sqrt(sqrDist));
+
+                    if (!activeChunks.ContainsKey(chunkKey) || !activeChunks[chunkKey].isActive)
+                    {
+                        var chunk = GetChunkFromPool();
+                        if (chunk != null)
+                        {
+                            chunk.coordinate = chunkKey;
+                            chunk.priority = priority;
+                            priorityLoadQueue.Add(chunk);
+                        }
+                    }
                 }
             }
         }
+
+        priorityLoadQueue.Sort();
     }
 
     void UnloadUnneededChunks()
     {
         chunksToRemove.Clear();
 
-        foreach (var coord in activeChunks.Keys)
+        foreach (var kvp in activeChunks)
         {
-            if (!neededChunks.Contains(coord))
+            if (!neededChunks.Contains(kvp.Key))
             {
-                chunksToRemove.Add(coord);
+                chunksToRemove.Add(kvp.Key);
             }
         }
 
@@ -377,11 +479,23 @@ public class AdvancedWorldStreamer : MonoBehaviour
     {
         int chunksProcessed = 0;
 
-        foreach (var coord in neededChunks)
+        foreach (var chunk in priorityLoadQueue)
         {
-            if (!activeChunks.ContainsKey(coord))
+            if (chunk != null && !activeChunks.ContainsKey(chunk.coordinate))
             {
-                LoadChunk(coord);
+                int lodLevel = CalculateLODLevel(chunk.coordinate);
+                SetupChunk(chunk, chunk.coordinate, lodLevel);
+
+                if (useJobSystem && chunksWithPendingJobs.Count < 8)
+                {
+                    StartMeshGenerationJob(chunk, lodLevel);
+                }
+                else
+                {
+                    GenerateChunkMeshImmediate(chunk, lodLevel);
+                }
+
+                activeChunks.Add(chunk.coordinate, chunk);
                 chunksProcessed++;
 
                 if (chunksProcessed >= maxChunksPerFrame)
@@ -401,7 +515,7 @@ public class AdvancedWorldStreamer : MonoBehaviour
             int lodLevel = CalculateLODLevel(coord);
             SetupChunk(chunk, coord, lodLevel);
 
-            if (useJobSystem && chunksWithPendingJobs.Count < MAX_CONCURRENT_JOBS)
+            if (useJobSystem && chunksWithPendingJobs.Count < 8)
             {
                 StartMeshGenerationJob(chunk, lodLevel);
             }
@@ -422,6 +536,8 @@ public class AdvancedWorldStreamer : MonoBehaviour
 
         chunk.vertices = new NativeArray<Vector3>(vertexCount, Allocator.Persistent);
         chunk.triangles = new NativeArray<int>(triangleCount, Allocator.Persistent);
+        chunk.vertexCount = vertexCount;
+        chunk.triangleCount = triangleCount;
 
         var job = new MeshGenerationJob
         {
@@ -429,16 +545,24 @@ public class AdvancedWorldStreamer : MonoBehaviour
             triangles = chunk.triangles,
             chunkSize = chunkSize,
             resolution = resolution,
-            coordinate = chunk.coordinate
+            coordinate = chunk.coordinate,
+            heightMultiplier = 10f,
+            noiseScale = 0.05f,
+            noiseOffset = new Vector2(UnityEngine.Random.value * 1000f, UnityEngine.Random.value * 1000f)
         };
 
         chunksLoading++;
         chunk.isJobScheduled = true;
         chunksWithPendingJobs.Add(chunk);
 
-        meshGenerationJobHandle = useBurstCompilation ?
-            job.Schedule(meshGenerationJobHandle) :
-            job.Schedule();
+        if (useBurstCompilation)
+        {
+            meshGenerationJobHandle = job.Schedule(meshGenerationJobHandle);
+        }
+        else
+        {
+            meshGenerationJobHandle = job.Schedule();
+        }
     }
 
     void GenerateChunkMeshImmediate(ChunkData chunk, int lodLevel)
@@ -450,14 +574,14 @@ public class AdvancedWorldStreamer : MonoBehaviour
 
     void ApplyMeshToChunk(ChunkData chunk, int lodLevel)
     {
-        if (chunk.meshFilter == null) return;
+        if (chunk == null || chunk.meshFilter == null) return;
 
         if (chunk.generatedMesh == null)
         {
             chunk.generatedMesh = new Mesh
             {
-                indexFormat = (chunk.triangles.Length > 65535) ? IndexFormat.UInt32 : IndexFormat.UInt16,
-                name = $"ChunkMesh_{chunk.coordinate.x}_{chunk.coordinate.y}_LOD{lodLevel}"
+                indexFormat = IndexFormat.UInt32,
+                name = $"ChunkMesh_{chunk.coordinate.x}_{chunk.coordinate.z}_LOD{lodLevel}"
             };
         }
         else
@@ -465,21 +589,15 @@ public class AdvancedWorldStreamer : MonoBehaviour
             chunk.generatedMesh.Clear();
         }
 
-        // --- Vertices ---
         chunk.generatedMesh.SetVertices(chunk.vertices);
-
-        // --- Triangles ---
         chunk.generatedMesh.SetIndices(chunk.triangles, MeshTopology.Triangles, 0);
-
-        // --- Finish mesh setup ---
         chunk.generatedMesh.RecalculateNormals();
-        chunk.generatedMesh.UploadMeshData(true);
+        chunk.generatedMesh.RecalculateBounds();
+        chunk.generatedMesh.UploadMeshData(false);
 
-        // --- Assign mesh ---
         chunk.meshFilter.sharedMesh = chunk.generatedMesh;
         chunk.lodLevel = lodLevel;
 
-        // --- Handle collider ---
         if (chunk.meshCollider != null)
         {
             chunk.meshCollider.enabled = lodLevels[lodLevel].generateColliders;
@@ -488,13 +606,37 @@ public class AdvancedWorldStreamer : MonoBehaviour
                 chunk.meshCollider.sharedMesh = chunk.generatedMesh;
             }
         }
+
+        if (chunk.lodGroup != null && useLODCrossFade)
+        {
+            UpdateLODGroup(chunk, lodLevel);
+        }
+
+        chunk.lastUsedTime = Time.time;
+    }
+
+    void UpdateLODGroup(ChunkData chunk, int lodLevel)
+    {
+        LOD[] lods = new LOD[lodLevels.Length];
+        float relativeHeight = 1f / lods.Length;
+
+        for (int i = 0; i < lods.Length; i++)
+        {
+            Renderer[] renderers = i == lodLevel ?
+                new Renderer[] { chunk.meshRenderer } :
+                new Renderer[0];
+
+            lods[i] = new LOD(i == lodLevel ? lodLevels[i].cullRatio : 0.01f, renderers);
+        }
+
+        chunk.lodGroup.SetLODs(lods);
+        chunk.lodGroup.RecalculateBounds();
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     int CalculateLODLevel(ChunkKey coord)
     {
-        int distance = Math.Max(Math.Abs(coord.x - currentPlayerChunk.x),
-                              Math.Abs(coord.y - currentPlayerChunk.y));
+        float distance = Mathf.Sqrt(coord.SqrDistanceTo(currentPlayerChunk));
 
         for (int i = 0; i < lodLevels.Length; i++)
         {
@@ -514,7 +656,8 @@ public class AdvancedWorldStreamer : MonoBehaviour
         for (int i = 0; i < lodLevels.Length; i++)
         {
             var mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-            mat.color = new Color(0.4f, 0.6f, 0.4f);
+            float intensity = 1f - (i / (float)lodLevels.Length) * 0.5f;
+            mat.color = new Color(0.4f * intensity, 0.6f * intensity, 0.4f * intensity);
             mat.enableInstancing = useGPUInstancing;
             lodMaterials[i] = mat;
         }
@@ -527,6 +670,8 @@ public class AdvancedWorldStreamer : MonoBehaviour
 
         chunk.vertices = new NativeArray<Vector3>(vertexCount, Allocator.Persistent);
         chunk.triangles = new NativeArray<int>(triangleCount, Allocator.Persistent);
+        chunk.vertexCount = vertexCount;
+        chunk.triangleCount = triangleCount;
 
         float step = (float)chunkSize / resolution;
 
@@ -535,7 +680,14 @@ public class AdvancedWorldStreamer : MonoBehaviour
             for (int j = 0; j <= resolution; j++)
             {
                 int index = i * (resolution + 1) + j;
-                chunk.vertices[index] = new Vector3(j * step, 0, i * step);
+                float x = j * step;
+                float z = i * step;
+
+                float worldX = (chunk.coordinate.x * chunkSize + x) * 0.05f;
+                float worldZ = (chunk.coordinate.z * chunkSize + z) * 0.05f;
+                float height = Mathf.PerlinNoise(worldX, worldZ) * 10f;
+
+                chunk.vertices[index] = new Vector3(x, height, z);
             }
         }
 
@@ -596,14 +748,12 @@ public class AdvancedWorldStreamer : MonoBehaviour
         chunk.gameObject.SetActive(false);
         chunk.isActive = false;
 
-        // Clear mesh references
         if (chunk.meshFilter != null)
             chunk.meshFilter.sharedMesh = null;
 
         if (chunk.meshCollider != null)
             chunk.meshCollider.sharedMesh = null;
 
-        // Dispose native arrays
         chunk.Dispose();
 
         if (chunkPool.Count < preWarmPoolSize * 2)
@@ -624,11 +774,16 @@ public class AdvancedWorldStreamer : MonoBehaviour
             chunkObj.transform.SetParent(transform);
             chunkObj.layer = gameObject.layer;
 
+            LODGroup lodGroup = chunkObj.AddComponent<LODGroup>();
+            lodGroup.animateCrossFading = useLODCrossFade;
+            lodGroup.fadeMode = LODFadeMode.CrossFade;
+
             return new ChunkData
             {
                 gameObject = chunkObj,
                 meshFilter = chunkObj.GetComponent<MeshFilter>(),
                 meshRenderer = chunkObj.GetComponent<MeshRenderer>(),
+                lodGroup = lodGroup,
                 isActive = false
             };
         }
@@ -645,28 +800,51 @@ public class AdvancedWorldStreamer : MonoBehaviour
 
         chunk.coordinate = coord;
         chunk.lodLevel = lodLevel;
-        chunk.meshRenderer.material = lodMaterials[lodLevel];
 
-        Vector3 worldPos = new Vector3(coord.x * chunkSize, 0, coord.y * chunkSize);
-        chunk.gameObject.transform.SetPositionAndRotation(worldPos, IdentityRotation);
-        chunk.gameObject.name = $"Chunk_{coord.x}_{coord.y}_LOD{lodLevel}";
-
-        // Add collider if needed for this LOD
-        if (lodLevels[lodLevel].generateColliders && chunk.meshCollider == null)
+        if (chunk.meshRenderer != null && lodMaterials != null && lodLevel < lodMaterials.Length)
         {
-            chunk.meshCollider = chunk.gameObject.AddComponent<MeshCollider>();
+            chunk.meshRenderer.material = lodMaterials[lodLevel];
+            chunk.meshRenderer.enabled = IsChunkVisible(coord);
         }
-        else if (chunk.meshCollider != null && !lodLevels[lodLevel].generateColliders)
+
+        Vector3 worldPos = new Vector3(coord.x * chunkSize, 0, coord.z * chunkSize);
+        chunk.gameObject.transform.SetPositionAndRotation(worldPos, IdentityRotation);
+        chunk.gameObject.name = $"Chunk_{coord.x}_{coord.z}_LOD{lodLevel}";
+
+        if (lodLevels[lodLevel].generateColliders)
+        {
+            if (chunk.meshCollider == null)
+            {
+                chunk.meshCollider = chunk.gameObject.AddComponent<MeshCollider>();
+            }
+            chunk.meshCollider.enabled = true;
+        }
+        else if (chunk.meshCollider != null)
         {
             chunk.meshCollider.enabled = false;
         }
     }
 
+    bool IsChunkVisible(ChunkKey coord)
+    {
+        if (!enableOcclusionCulling || mainCamera == null)
+            return true;
+
+        Vector3 chunkCenter = new Vector3(
+            coord.x * chunkSize + chunkSize * 0.5f,
+            0,
+            coord.z * chunkSize + chunkSize * 0.5f
+        );
+
+        Bounds chunkBounds = new Bounds(chunkCenter, new Vector3(chunkSize, 100f, chunkSize));
+        return GeometryUtility.TestPlanesAABB(cameraFrustumPlanes, chunkBounds);
+    }
+
     ChunkKey WorldToChunk(Vector3 pos)
     {
         int x = Mathf.FloorToInt(pos.x / chunkSize);
-        int y = Mathf.FloorToInt(pos.z / chunkSize);
-        return new ChunkKey(x, y);
+        int z = Mathf.FloorToInt(pos.z / chunkSize);
+        return new ChunkKey(x, z);
     }
 
     void UpdatePerformanceMetrics()
@@ -674,11 +852,26 @@ public class AdvancedWorldStreamer : MonoBehaviour
         activeChunkCount = activeChunks.Count;
         totalChunksInPool = chunkPool.Count;
         memoryUsageMB = Profiler.GetTotalAllocatedMemoryLong() / 1048576f;
+
+        // Calculate total geometry statistics
+        triangleCount = 0;
+        vertexCount = 0;
+        foreach (var chunk in activeChunks.Values)
+        {
+            if (chunk != null)
+            {
+                triangleCount += chunk.triangleCount;
+                vertexCount += chunk.vertexCount;
+            }
+        }
+
+        // Estimate draw calls based on active chunks and LOD levels
+        drawCallCount = activeChunkCount;
     }
 
     void MonitorMemoryUsage()
     {
-        if (enableMemoryCleanup && Time.time - lastMemoryCleanupTime > MEMORY_CLEANUP_INTERVAL)
+        if (enableMemoryCleanup && Time.time - lastMemoryCleanupTime > memoryCleanupInterval)
         {
             if (memoryUsageMB > maxMemoryMB * 0.8f)
             {
@@ -690,7 +883,6 @@ public class AdvancedWorldStreamer : MonoBehaviour
 
     void ForceMemoryCleanup()
     {
-        // Complete any pending jobs first
         if (useJobSystem && !meshGenerationJobHandle.IsCompleted)
         {
             meshGenerationJobHandle.Complete();
@@ -700,11 +892,11 @@ public class AdvancedWorldStreamer : MonoBehaviour
         Resources.UnloadUnusedAssets();
         GC.Collect();
 
-        // Reduce pool size if memory is high
         while (chunkPool.Count > preWarmPoolSize && memoryUsageMB > maxMemoryMB * 0.7f)
         {
             var chunk = chunkPool.Dequeue();
-            DestroyChunkObject(chunk);
+            if (chunk != null)
+                DestroyChunkObject(chunk);
         }
     }
 
@@ -712,10 +904,8 @@ public class AdvancedWorldStreamer : MonoBehaviour
     {
         if (chunk != null)
         {
-            // Dispose native arrays
             chunk.Dispose();
 
-            // Destroy the mesh if it exists
             if (chunk.generatedMesh != null)
             {
                 if (Application.isPlaying)
@@ -725,13 +915,31 @@ public class AdvancedWorldStreamer : MonoBehaviour
                 chunk.generatedMesh = null;
             }
 
-            // Destroy the game object
             if (chunk.gameObject != null)
             {
                 if (Application.isPlaying)
                     Destroy(chunk.gameObject);
                 else
                     DestroyImmediate(chunk.gameObject);
+            }
+        }
+    }
+
+    // Debug visualization
+    void OnDrawGizmosSelected()
+    {
+        if (!isInitialized) return;
+
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, viewDistance * chunkSize);
+
+        Gizmos.color = Color.green;
+        foreach (var chunk in activeChunks.Values)
+        {
+            if (chunk != null && chunk.gameObject != null)
+            {
+                Vector3 center = chunk.gameObject.transform.position + new Vector3(chunkSize * 0.5f, 0, chunkSize * 0.5f);
+                Gizmos.DrawWireCube(center, new Vector3(chunkSize, 1, chunkSize));
             }
         }
     }
@@ -748,8 +956,13 @@ public class AdvancedWorldStreamer : MonoBehaviour
         }
     }
 
-    public bool IsChunkLoaded(int x, int y) => activeChunks.ContainsKey(new ChunkKey(x, y));
-    public Vector2Int GetCurrentChunk() => new Vector2Int(currentPlayerChunk.x, currentPlayerChunk.y);
+    public bool IsChunkLoaded(int x, int z) => activeChunks.ContainsKey(new ChunkKey(x, z));
+    public Vector2Int GetCurrentChunk() => new Vector2Int(currentPlayerChunk.x, currentPlayerChunk.z);
+    public int GetActiveChunkCount() => activeChunkCount;
+    public float GetMemoryUsageMB() => memoryUsageMB;
+    public int GetTotalTriangleCount() => triangleCount;
+    public int GetTotalVertexCount() => vertexCount;
+    public int GetEstimatedDrawCalls() => drawCallCount;
 }
 
 public class PlayerPositionProvider : MonoBehaviour
