@@ -287,6 +287,7 @@ public class Player : MonoBehaviour
                 wasFalling = true;
                 fallStartY = transform.position.y;
             }
+            grounded = false;   
         }
     }
 
